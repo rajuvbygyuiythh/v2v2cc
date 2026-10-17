@@ -1,3 +1,13 @@
+# Latest authorized dashboard/shared-settings change
+
+The owner explicitly selected **common settings truly shared across both modes**
+(2026-10-18). This supersedes earlier independent-profile requirements **after**
+the user chooses an existing profile and saves the unified Settings form.
+Common first-message/reply/no-reply/next-chat values are synchronized atomically
+in the existing UI store; poll/action and Show Auto Skip remain mode-specific.
+Home owns Start/Stop, Browser owns login, Settings owns one common form. Read
+`docs/SHARED_DASHBOARD.md`. Do not change driver/auth/proxy/license/AI decisions.
+
 # Current authorized extension: Browser direct-run and verification
 
 The user subsequently authorized Browser direct-run UI and browser-free advanced

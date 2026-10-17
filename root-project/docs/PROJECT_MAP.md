@@ -12,18 +12,18 @@ _Auto-generated 2026-10-17 by `scripts/project-map.cjs`. Do not edit this block 
 
 ## Source inventory
 
-- Total source files: **199** (1177.2 KiB, excluding runtime/private data)
+- Total source files: **207** (1259.9 KiB, excluding runtime/private data)
 
 | Area | Files | Size |
 |---|---:|---:|
-| `internal/` | 96 | 472.0 KiB |
-| `(root files)` | 26 | 200.3 KiB |
+| `internal/` | 98 | 480.9 KiB |
+| `(root files)` | 30 | 235.9 KiB |
 | `capture/` | 25 | 114.3 KiB |
-| `docs/` | 15 | 90.1 KiB |
+| `docs/` | 17 | 101.0 KiB |
 | `apitest/` | 12 | 99.3 KiB |
-| `cmd/` | 9 | 106.6 KiB |
-| `scripts/` | 8 | 40.1 KiB |
-| `tests/` | 8 | 54.3 KiB |
+| `cmd/` | 9 | 126.8 KiB |
+| `scripts/` | 8 | 40.3 KiB |
+| `tests/` | 8 | 61.4 KiB |
 
 ## Internal Go packages
 
@@ -36,7 +36,7 @@ _Auto-generated 2026-10-17 by `scripts/project-map.cjs`. Do not edit this block 
 - `internal/proxy/` — 7 Go file(s)
 - `internal/runtimeassets/` — 2 Go file(s)
 - `internal/store/` — 1 Go file(s)
-- `internal/uistore/` — 5 Go file(s)
+- `internal/uistore/` — 7 Go file(s)
 - `internal/workerplan/` — 2 Go file(s)
 
 ## Browser options (Dashboard → Browser)
@@ -64,11 +64,13 @@ _Auto-generated 2026-10-17 by `scripts/project-map.cjs`. Do not edit this block 
 - `docs/FILE_LOGGING.md`
 - `docs/FIRST_MESSAGE_SETTINGS.md`
 - `docs/HOME_CHAT.md`
+- `docs/HOME_DIAGNOSTICS.md`
 - `docs/PROJECT_MAP.md`
 - `docs/PROJECT_MEMORY.md`
 - `docs/PROXY_TEST.md`
 - `docs/RECHECK_2026-10-15.md`
 - `docs/SETTINGS_PROFILES.md`
+- `docs/SHARED_DASHBOARD.md`
 - `docs/SHOW_MODE.md`
 - `docs/SHOW_MODE_CONTROL.md`
 - `docs/SHOW_MODE_FIX.md`
@@ -109,3 +111,22 @@ _Auto-generated 2026-10-17 by `scripts/project-map.cjs`. Do not edit this block 
 - `app.go`: narrow lifecycle/public-method wiring; `internal/bot/run.go`: optional
   ownership hook only. Browser drivers and chat engines unchanged.
 - `docs/SHOW_MODE_CONTROL.md`: current UI flow, boundaries and acceptance steps.
+
+## Home structured diagnostics (2026-10-17)
+
+`home_diagnostics.go` owns a bounded read-only feed, exposed through
+`App.GetHomeDiagnostics` / `ClearHomeDiagnostics`. `show_control.go` freezes each
+Show chat run's settings and wires an optional `live_chat.go` diagnostic callback;
+`home_chat.go` supplies transcript run/conversation correlation. Home's scoped
+HTML/JS/CSS panel polls snapshots and implements safe render, selection, redacted
+copy and diagnostic-only clear. Tests: `home_diagnostics_test.go` and frontend
+`tests/browser-ui.test.cjs`. Definitions/limits: [HOME_DIAGNOSTICS.md](HOME_DIAGNOSTICS.md).
+
+## Simplified shared dashboard (2026-10-18)
+
+Home owns contextual mode controls and collapsible diagnostics; Browser owns only
+launch/login. Settings owns a single common form. `chat_settings.go` guards shared
+Wails saves; `internal/uistore/chat_settings.go` synchronizes both engine records
+atomically, with an explicit first-setup profile choice. Poll/action and Show Auto
+Skip remain mode-specific. See [SHARED_DASHBOARD.md](SHARED_DASHBOARD.md), which
+supersedes older independent-profile/layout instructions after shared setup.

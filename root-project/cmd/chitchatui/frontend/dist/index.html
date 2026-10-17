@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ChitChat Bot</title>
-  <link rel="stylesheet" href="./styles.css?v=2">
+  <link rel="stylesheet" href="./styles.css?v=3">
 </head>
 <body>
   <div id="license-overlay" class="license-overlay" style="display: none;">
@@ -24,16 +24,16 @@
         <div class="brand-mark">CB</div>
         <div>
           <div class="brand-title">ChitChat Bot</div>
-          <div class="brand-subtitle">Wails + Badger</div>
+          <div class="brand-subtitle">Chat workspace</div>
         </div>
       </div>
 
       <nav class="nav">
         <button class="nav-button active" data-tab="home">Home</button>
         <button class="nav-button" data-tab="proxy">Proxy</button>
-        <button class="nav-button" data-tab="message">Message</button>
+        <button class="nav-button" data-tab="message">Messages</button>
         <button class="nav-button" data-tab="browser">Browser</button>
-        <button class="nav-button" data-tab="setting">Setting</button>
+        <button class="nav-button" data-tab="setting">Settings</button>
       </nav>
 
       <div class="sidebar-footer">
@@ -48,36 +48,28 @@
 
     <main class="main">
       <section class="tab-panel active" data-panel="home">
-        <header class="panel-header">
-          <div>
-            <h1>Home</h1>
-            <p>Live browser conversations. Diagnostics are saved to logs.txt beside the data folder.</p>
-          </div>
-          <div class="actions">
-            <button id="clean-profiles" class="secondary-button">Clean</button>
-            <button id="refresh-state" class="secondary-button">Refresh</button>
-            <button id="clear-logs" class="secondary-button" title="Clear stored UI history only; logs.txt is kept.">Clear Logs</button>
-            <button id="stop-bot" class="secondary-button">Stop Standard Bot</button>
-            <button id="start-bot" class="primary-button">Start Standard Bot</button>
-          </div>
+        <header class="panel-header"><div><span class="eyebrow">WORKSPACE</span><h1>Conversations</h1><p>Choose a mode. Start chatting. Everything else stays out of the way.</p></div>
+          <details class="maintenance-menu"><summary>More</summary><div class="maintenance-actions">
+            <button id="clean-profiles" class="secondary-button">Clean profiles</button><button id="refresh-state" class="secondary-button">Refresh</button><button id="clear-logs" class="secondary-button" title="Clear UI logs only; logs.txt is kept.">Clear UI logs</button>
+          </div></details>
         </header>
-
+        <div class="workspace-controls">
+          <label for="workspace-mode">Chat mode</label><select id="workspace-mode"><option value="show">Show Mode · visible browser</option><option value="standard">Standard Bot · background workers</option></select>
+          <div id="standard-actions" hidden><button id="start-bot" class="primary-button">Start Standard Bot</button><button id="stop-bot" class="secondary-button">Stop Standard Bot</button></div>
+          <button type="button" class="text-button" data-open-tab="setting">Edit shared settings →</button>
+        </div>
+        <div id="settings-show" class="show-workspace">
+          <div class="section-heading"><h2>Connected browsers</h2><button type="button" class="text-button" data-open-tab="browser">Open browser →</button><button type="button" id="refresh-show-control" class="secondary-button">Refresh</button></div>
+          <p id="show-control-status" role="status" aria-live="polite">Loading browser status…</p><div id="show-sessions" aria-label="Show Mode browsers"></div>
+        </div>
         <div class="log-toolbar">
           <span id="home-summary" class="summary-text">Loading state...</span>
         </div>
 
         <div class="home-stats">
           <div class="stat-capsule">
-            <span>Bot accounts</span>
-            <strong id="stat-bot-accounts">0</strong>
-          </div>
-          <div class="stat-capsule">
-            <span>Running</span>
+            <span>Workers running</span>
             <strong id="stat-running-accounts">0</strong>
-          </div>
-          <div class="stat-capsule">
-            <span>User send</span>
-            <strong id="stat-user-send">0</strong>
           </div>
           <div class="stat-capsule">
             <span>Traffic users</span>
@@ -91,6 +83,16 @@
             <span>snap/tg/user :</span>
             <strong id="stat-snap-tg-user">0</strong>
           </div>
+        </div>
+        <details class="activity-details"><summary>More activity</summary><div class="home-stats">
+          <div class="stat-capsule">
+            <span>Bot accounts</span>
+            <strong id="stat-bot-accounts">0</strong>
+          </div>
+          <div class="stat-capsule">
+            <span>User send</span>
+            <strong id="stat-user-send">0</strong>
+          </div>
           <div class="stat-capsule danger">
             <span>Dead accounts</span>
             <strong id="stat-dead-accounts">0</strong>
@@ -99,8 +101,11 @@
             <span>Skip</span>
             <strong id="stat-skipped-accounts">0</strong>
           </div>
-        </div>
+        </div></details>
 
+        <p id="shared-settings-summary" class="summary-text"></p>
+        <p id="standard-mode-note" class="summary-text" hidden>Standard Bot runs in the background. Live browser transcripts and timing diagnostics are available in Show Mode. Switching this view does not stop either mode.</p>
+        <div class="home-live-grid" id="live-chat-workspace">
         <section class="home-chat" aria-label="Live browser chat">
           <div class="home-chat-toolbar">
             <label for="chat-session">Conversation</label>
@@ -113,6 +118,24 @@
             <p class="home-chat-empty">Waiting for a Show Mode conversation.</p>
           </div>
         </section>
+        <details class="home-diagnostics" id="diagnostic-details">
+          <summary id="diagnostic-title">Diagnostics &amp; timing <span class="summary-text">Details</span></summary><div class="diagnostic-content">
+          <label for="diagnostic-run">Browser / run</label>
+          <select id="diagnostic-run"><option value="">Follow selected chat / latest run</option></select>
+          <label class="checkbox-row"><input type="checkbox" id="diagnostic-all"> All conversations in this run</label>
+          <p id="diagnostic-settings" class="diagnostic-settings">Waiting for Show Mode activity.</p>
+          <p id="diagnostic-note" class="summary-text" role="status"></p>
+          <p class="summary-text">Show Mode only. Incoming timing starts at runner detection, not the website's sent time. Confirmed means an own DOM row was observed — not delivered/read.</p>
+          <div class="diagnostic-actions">
+            <label class="checkbox-row"><input type="checkbox" id="diagnostic-scroll" checked> Auto-scroll</label>
+            <button type="button" id="diagnostic-copy" class="secondary-button" disabled>Copy selected run diagnostics</button>
+            <button type="button" id="diagnostic-clear" class="secondary-button" disabled>Clear Diagnostic View</button>
+          </div>
+          <p class="summary-text">Clear removes selected-run diagnostic events only; chat history, settings and logs.txt stay unchanged.</p>
+          <textarea id="diagnostic-export" aria-label="Diagnostics copy fallback" readonly hidden></textarea>
+          <div id="diagnostic-events" class="diagnostic-events" tabindex="0" aria-label="Structured timing events"></div>
+        </div></details>
+        </div>
       </section>
 
       <section class="tab-panel" data-panel="proxy">
@@ -209,7 +232,7 @@
               <button type="button" id="open-evachat-folder-btn" class="secondary-button">Open EVAChat Data Folder</button>
               <span id="evachat-status" style="margin-left: 10px; font-size: 0.9em; color: var(--muted);">TXT data is initialized when EVAChat Flow starts.</span>
             </div>
-            <div class="hint-text" style="margin-bottom: 10px;">
+            <details class="hint-text" style="margin-bottom: 10px;"><summary>Advanced · AI reply settings</summary>
               <label style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
                 <input type="checkbox" id="evachat-ai-enabled">
                 <span><strong>AI reply text (hybrid)</strong> — the TXT rules still decide the flow (age, snap ask → yes → share, cap); the AI writes context-aware reply text with a random persona (f 20–25, Europe). Edit <code>data/eva_chat/persona.txt</code>.</span>
@@ -226,7 +249,7 @@
               <div style="margin-top:6px; font-size:0.85em;">
                 Base URLs: OpenAI <code>https://api.openai.com/v1</code> · Groq <code>https://api.groq.com/openai/v1</code> · OpenRouter <code>https://openrouter.ai/api/v1</code> · Gemini <code>https://generativelanguage.googleapis.com/v1beta/openai</code> · DeepSeek <code>https://api.deepseek.com/v1</code>
               </div>
-            </div>
+            </details>
             <div class="hint-text">
               EVAChat Flow is a stateful TXT-driven conversation engine. Edit <code>data/eva_chat/input/</code> for user-message triggers and <code>data/eva_chat/output/</code> for reply pools. The same file name connects a trigger category to its replies (see docs/CHAT_ENGINE_MAPPING.md). Fill the Usernames list: share_snap.txt uses %username%. Changes are loaded when the bot starts.
             </div>
@@ -278,62 +301,19 @@
             Leave Headless off for manual login. Status below shows the latest fresh-browser activity.
           </div>
         </form>
-        <div id="settings-show" class="show-workspace">
-          <h2>Show Mode — Browser Chat</h2>
-          <p><strong>1. Save settings → 2. Open browser &amp; log in → 3. Start Show Chat</strong></p>
-          <p>Login alone never starts automation. Start Show Chat loads saved settings. Stop cancels chat actions but keeps the browser open.</p>
-          <form id="show-mode-form" class="form-grid two-column">
-            <fieldset class="first-message-settings">
-              <legend>Who sends the first message?</legend>
-              <label><span>First-message mode</span><select id="show-first-mode">
-                <option value="bot">Bot first</option><option value="user">User first</option><option value="random">Random</option>
-              </select></label>
-              <div id="show-first-percent-row" hidden><label><span>Bot first chance (%)</span><input id="show-first-percent" type="number" min="0" max="100" step="1" value="70" required></label>
-                <p>Probability per new conversation, not a fixed quota. 0% = user first; 100% = bot first.</p></div>
-              <div id="show-first-wait-row" hidden>
-                <label><span>Wait for the user's first message</span><select id="show-first-wait"><option value="unlimited">Wait indefinitely</option><option value="skip">Skip after timeout</option></select></label>
-                <div id="show-first-timeout-row" class="first-timeout-range" hidden>
-                  <label><span>First-message timeout min seconds</span><input id="show-first-min" type="number" min="1" max="86400" step="1" value="30" required></label>
-                  <label><span>First-message timeout max seconds</span><input id="show-first-max" type="number" min="1" max="86400" step="1" value="60" required></label>
-                </div>
-                <p>Separate from the no-reply timeout after a bot send. On timeout, skip the current chat and use the next-chat wait.</p>
-              </div>
-              <p>Old messages present before Start are ignored. In an existing chat, wait for a new partner message; new matches use your selected first-message rule. Stop Show Chat before editing, then Save and Start again.</p>
-            </fieldset>
-            <label><span>Reply delay min seconds</span><input id="reply-delay-min" type="number" min="0" max="86400" required></label>
-            <label><span>Reply delay max seconds</span><input id="reply-delay-max" type="number" min="0" max="86400" required></label>
-            <label class="checkbox-row"><input id="show-auto-skip" type="checkbox"><span>No-reply auto skip</span></label>
-            <p>Timeout starts after a confirmed bot send. Incoming messages and pending replies prevent timeout skips.</p>
-            <label><span>No-reply timeout min seconds</span><input id="show-timeout-min" type="number" min="1" max="86400" required></label>
-            <label><span>No-reply timeout max seconds</span><input id="show-timeout-max" type="number" min="1" max="86400" required></label>
-            <label><span>Next chat wait min seconds</span><input id="show-next-min" type="number" min="0" max="86400" required></label>
-            <label><span>Next chat wait max seconds</span><input id="show-next-max" type="number" min="0" max="86400" required></label>
-            <div class="form-actions"><button type="submit" class="primary-button">Save Show Mode Settings</button></div>
-            <p id="show-save-status" role="status" aria-live="polite">Save settings before Start Show Chat. No browser restart required.</p>
-          </form>
-        <h3>2. Open browser and log in</h3>
-        <p>Profile and Count above apply to opening browsers. Show Mode is always visible; login does not start chat.</p>
-        <div id="show-launch-controls"></div>
-        <h3>3. Start / Stop each logged-in browser</h3>
-        <button type="button" id="refresh-show-control" class="secondary-button">Refresh Show Status</button>
-        <p id="show-control-status" role="status" aria-live="polite">Loading browser status…</p>
-        <div id="show-sessions" aria-label="Show Mode browsers"></div>
-        </div>
+        <p class="summary-text">Open a browser, log in, then start its chat from Home. <button type="button" class="text-button" data-open-tab="home">Go to Home →</button></p>
       </section>
 
       <section class="tab-panel" data-panel="setting">
-        <header class="panel-header">
-          <div>
-            <h1>Setting</h1>
-            <p>Standard Bot settings only. Show Mode has its own settings and Start/Stop controls in Browser.</p>
+        <header class="panel-header"><div><span class="eyebrow">CONFIGURATION</span><h1>Chat settings</h1><p>Save once. Both Standard Bot and Show Mode use these values.</p></div></header>
+        <form id="general-form" class="shared-settings-form">
+          <div id="settings-migration" class="migration-card" hidden>
+            <strong>Bring your existing settings together</strong>
+            <p>Your old profiles are kept until you Save. Choose which common values to start with, then review below.</p>
+            <label for="settings-source">Use existing settings from</label>
+            <select id="settings-source"><option value="">Choose a profile…</option><option value="standard">Standard Bot</option><option value="show">Show Mode</option></select>
+            <p id="settings-migration-summary" class="summary-text"></p>
           </div>
-        </header>
-
-        <p>Show Mode controls have moved to Browser. <button type="button" id="manage-show-settings" class="secondary-button">Manage Show Mode in Browser</button></p>
-        <div id="settings-standard">
-        <h2>Standard Bot — Start Bot</h2>
-        <p>Only Home → Start Standard Bot workers. These values do not control Show Mode.</p>
-        <form id="general-form" class="form-grid two-column">
           <fieldset class="first-message-settings">
               <legend>Who sends the first message?</legend>
               <label><span>First-message mode</span><select id="standard-first-mode">
@@ -347,62 +327,28 @@
                   <label><span>First-message timeout min seconds</span><input id="standard-first-min" type="number" min="1" max="86400" step="1" value="30" required></label>
                   <label><span>First-message timeout max seconds</span><input id="standard-first-max" type="number" min="1" max="86400" step="1" value="60" required></label>
                 </div>
-                <p>Separate from the no-reply timeout after a bot send. Timeout skips idle matches. DMs are not deleted or disconnected; idle DMs are left waiting for an incoming message.</p>
+                <p>For new matches. Standard DMs keep waiting instead of disconnecting.</p>
               </div>
-              <p>If the partner has already written, reply to that message instead of adding an unsolicited opener. Save and restart this mode to apply.</p>
+              <p>If the partner has already written, reply to that message instead of adding an unsolicited opener. Applies to both modes on the next Start.</p>
             </fieldset>
-          <label>
-            <span>Poll min seconds</span>
-            <input type="number" id="poll-min" min="1">
-          </label>
-
-          <label>
-            <span>Poll max seconds</span>
-            <input type="number" id="poll-max" min="1">
-          </label>
-
-          <label>
-            <span>Action min seconds</span>
-            <input type="number" id="action-min" min="1">
-          </label>
-
-          <label>
-            <span>Action max seconds</span>
-            <input type="number" id="action-max" min="1">
-          </label>
-
-          <label>
-            <span>Skip timeout min seconds</span>
-            <input type="number" id="match-reply-timeout-min" min="1">
-          </label>
-
-          <label>
-            <span>Skip timeout max seconds</span>
-            <input type="number" id="match-reply-timeout-max" min="1">
-          </label>
-
-          <label>
-            <span>Chat closed wait min seconds</span>
-            <input type="number" id="match-close-wait-min" min="0" placeholder="0 (no wait)">
-          </label>
-
-          <label>
-            <span>Chat closed wait max seconds</span>
-            <input type="number" id="match-close-wait-max" min="0" placeholder="0 (no wait)">
-          </label>
-
-          <label><span>Worker reply delay min seconds</span><input type="number" id="worker-reply-delay-min" min="0" max="86400" required></label>
-          <label><span>Worker reply delay max seconds</span><input type="number" id="worker-reply-delay-max" min="0" max="86400" required></label>
-          <div class="form-actions">
-            <button type="submit" class="primary-button">Save Standard Bot Settings</button>
+          <div class="shared-timing-grid">
+            <fieldset class="timing-pair"><legend>Reply delay</legend><label><span>Min (seconds)</span><input id="worker-reply-delay-min" type="number" min="0" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="worker-reply-delay-max" type="number" min="0" max="86400" step="1" required></label></fieldset>
+            <fieldset class="timing-pair"><legend>No-reply timeout</legend><label><span>Min (seconds)</span><input id="match-reply-timeout-min" type="number" min="1" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="match-reply-timeout-max" type="number" min="1" max="86400" step="1" required></label></fieldset>
+            <fieldset class="timing-pair"><legend>Next chat wait</legend><label><span>Min (seconds)</span><input id="match-close-wait-min" type="number" min="0" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="match-close-wait-max" type="number" min="0" max="86400" step="1" required></label></fieldset>
           </div>
+          <p class="summary-text">Timeout starts after a bot reply. Standard Bot uses it for idle matches; Show Mode uses it only when Auto Skip is on.</p>
+          <details class="advanced-settings"><summary>Advanced · mode-specific options</summary>
+            <div class="advanced-content">
+              <h3>Show Mode</h3><label class="checkbox-row"><input id="show-auto-skip" type="checkbox"> Auto Skip when the partner does not reply</label>
+              <h3>Standard Bot</h3><div class="shared-timing-grid"><fieldset class="timing-pair"><legend>Polling interval</legend><label><span>Min (seconds)</span><input id="poll-min" type="number" min="1" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="poll-max" type="number" min="1" max="86400" step="1" required></label></fieldset><fieldset class="timing-pair"><legend>Action interval</legend><label><span>Min (seconds)</span><input id="action-min" type="number" min="1" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="action-max" type="number" min="1" max="86400" step="1" required></label></fieldset></div>
+            </div>
+          </details>
+          <div class="settings-save-bar"><p id="standard-save-status" role="status" aria-live="polite">Loading shared settings…</p><button type="submit" id="save-chat-settings" class="primary-button">Save settings</button></div>
         </form>
-        <p id="standard-save-status" role="status" aria-live="polite">Saved values apply after stopping and restarting Start Bot.</p>
-        </div>
       </section>
     </main>
   </div>
 
-  <script src="./app.js?v=2"></script>
+  <script src="./app.js?v=3"></script>
 </body>
 </html>

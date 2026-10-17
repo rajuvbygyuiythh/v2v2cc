@@ -78,3 +78,13 @@ export function StartShowChat(arg1, arg2) {
 export function StopShowChat(arg1) {
   return window['go']['main']['App']['StopShowChat'](arg1);
 }
+
+export function GetHomeDiagnostics(arg1, arg2) {
+  return window['go']['main']['App']['GetHomeDiagnostics'](arg1, arg2);
+}
+export function ClearHomeDiagnostics(arg1) {
+  return window['go']['main']['App']['ClearHomeDiagnostics'](arg1);
+}
+
+export function GetChatSettings() { return window['go']['main']['App']['GetChatSettings'](); }
+export function SaveChatSettings(arg1) { return window['go']['main']['App']['SaveChatSettings'](arg1); }

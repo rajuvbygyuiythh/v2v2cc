@@ -21,10 +21,12 @@ type homeChatMessage struct {
 	Order int    `json:"order"`
 }
 type homeChatSessionInfo struct {
-	ID      string `json:"id"`
-	Label   string `json:"label"`
-	Active  bool   `json:"active"`
-	Dropped int    `json:"dropped"`
+	DiagnosticRun string `json:"diagnostic_run,omitempty"`
+	Conversation  string `json:"conversation,omitempty"`
+	ID            string `json:"id"`
+	Label         string `json:"label"`
+	Active        bool   `json:"active"`
+	Dropped       int    `json:"dropped"`
 }
 type homeChatSnapshot struct {
 	Version  uint64                `json:"version"`
@@ -42,6 +44,7 @@ type homeChatSession struct {
 	nextOrder int
 }
 type homeChatRun struct {
+	diagnosticRun  string
 	label, current string
 	suppressed     string
 	chats          int
@@ -65,7 +68,8 @@ func (a *App) homeChatFeed() *homeChatFeed {
 	}
 	return a.chatFeed
 }
-func (f *homeChatFeed) start(label string) uint64 {
+func (f *homeChatFeed) start(label string) uint64 { return f.startWithDiagnostics(label, "") }
+func (f *homeChatFeed) startWithDiagnostics(label, diagnosticRun string) uint64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.runs == nil {
@@ -73,7 +77,7 @@ func (f *homeChatFeed) start(label string) uint64 {
 		f.sessions = map[string]*homeChatSession{}
 	}
 	f.nextRun++
-	f.runs[f.nextRun] = &homeChatRun{label: label}
+	f.runs[f.nextRun] = &homeChatRun{label: label, diagnosticRun: diagnosticRun}
 	return f.nextRun
 }
 func (f *homeChatFeed) end(run uint64) {
@@ -128,7 +132,7 @@ func (f *homeChatFeed) observe(run uint64, snapshot browser.DOMSnapshot, receipt
 			old.info.Active = false
 		}
 		r.chats++
-		s = &homeChatSession{run: run, info: homeChatSessionInfo{ID: key, Label: fmt.Sprintf("%s · Chat %d", r.label, r.chats), Active: true}, rows: map[string]homeChatMessage{}}
+		s = &homeChatSession{run: run, info: homeChatSessionInfo{DiagnosticRun: r.diagnosticRun, Conversation: c.Conversation, ID: key, Label: fmt.Sprintf("%s · Chat %d", r.label, r.chats), Active: true}, rows: map[string]homeChatMessage{}}
 		f.sessions[key] = s
 		f.order = append(f.order, key)
 		r.current = key
@@ -295,8 +299,11 @@ func (d *homeObservedDOM) SendDOMMessage(ctx context.Context, text string) (bool
 	return d.DOMChatBackend.SendDOMMessage(ctx, text)
 }
 func (a *App) startHomeChatObserver(ctx context.Context, dom browser.DOMChatBackend, profile string, index, total int) (browser.DOMChatBackend, func()) {
+	return a.startHomeChatObserverForRun(ctx, dom, profile, index, total, "")
+}
+func (a *App) startHomeChatObserverForRun(ctx context.Context, dom browser.DOMChatBackend, profile string, index, total int, diagnosticRun string) (browser.DOMChatBackend, func()) {
 	feed := a.homeChatFeed()
-	run := feed.start(fmt.Sprintf("%s · Browser %d/%d", profile, index, total))
+	run := feed.startWithDiagnostics(fmt.Sprintf("%s · Browser %d/%d", profile, index, total), diagnosticRun)
 	observed := &homeObservedDOM{DOMChatBackend: dom, feed: feed, run: run}
 	watchCtx, cancel := context.WithCancel(ctx)
 	stopApp := func() bool { return false }

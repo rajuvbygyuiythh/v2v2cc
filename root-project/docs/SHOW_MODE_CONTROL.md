@@ -1,3 +1,8 @@
+> **Current dashboard (2026-10-18):** Start/Stop browser cards now live in Home;
+> browser opening/login stays in Browser. There is one shared Settings form for
+> both modes. The lifecycle safeguards below still apply; older placement and
+> independent-settings instructions are superseded by [SHARED_DASHBOARD.md](SHARED_DASHBOARD.md).
+
 # Show Mode — explicit controls (2026-10-17)
 
 This supersedes the earlier automatic-after-login Show Mode instructions.

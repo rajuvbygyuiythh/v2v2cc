@@ -255,3 +255,36 @@ export namespace model {
 
 }
 
+
+export namespace main {
+  export interface HomeDiagnosticEvent {
+    sequence:number; time:string; detected_at?:string; code:string; reason?:string; conversation?:string;
+    reply?:number; part?:number; wait_kind?:string; metrics?:{[key:string]:number};
+  }
+  export interface HomeDiagnosticRun {
+    id:string; browser:string; profile:string; account:string; scope:string; mode:string;
+    message_mode:string; revision:number; started:string; ended?:string;
+    settings?:model.ShowModeSettings; dropped:number; cleared:number;
+  }
+  export interface HomeDiagnosticsSnapshot {
+    version:number; selected:string; runs:HomeDiagnosticRun[]; events:HomeDiagnosticEvent[];
+    evicted:number; missed:number;
+  }
+}
+
+export namespace model {
+  export class ChatSettings {
+    general:GeneralSettings;
+    show_auto_skip:boolean;
+    unified:boolean;
+    legacy_show:ShowModeSettings;
+    static createFrom(source:any={}) { return new ChatSettings(source); }
+    constructor(source:any={}) {
+      if(typeof source==='string')source=JSON.parse(source);
+      this.general=new GeneralSettings(source.general);
+      this.show_auto_skip=source.show_auto_skip;
+      this.unified=source.unified;
+      this.legacy_show=new ShowModeSettings(source.legacy_show);
+    }
+  }
+}

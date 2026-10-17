@@ -1,6 +1,8 @@
 const state = {
+  common: {loaded:false, snapshot:null, source:"", token:0, running:false},
   snapshot: null,
   show: {loaded:false, dirty:false, pending:false, known:false, revision:0, snapshot:null, request:0, edits:0},
+  diagnostics: { selected:"", chatRun:"", conversation:"", all:false, token:0, snapshot:null, key:"", rendered:"", busy:false },
   currentTab: "home",
   browserFormLoaded: false,
   browserRunPending: false,
@@ -41,9 +43,11 @@ function reportFrontendError(context, error) {
 }
 
 function setRunning(running) {
+  state.common.running=!!running;
   const pill = document.getElementById("running-pill");
   pill.textContent = running ? "Running" : "Stopped";
   pill.className = `pill ${running ? "running" : "stopped"}`;
+  renderSharedLock();
   const cleanButton = document.getElementById("clean-profiles");
   if (cleanButton) {
     cleanButton.disabled = !!running || !!state.show.snapshot?.browsers?.some(b => b.status !== "closed");
@@ -74,6 +78,12 @@ function renderChatTranscript(snapshot) {
   select.value = state.chat.manual ? state.chat.selected : "";
   select.disabled = sessions.length === 0;
   const current = sessions.find(s => s.id === snapshot.selected);
+  const nextRun=current?.diagnostic_run || "", nextConversation=current?.conversation || "";
+  if (state.diagnostics.chatRun!==nextRun || state.diagnostics.conversation!==nextConversation) {
+    state.diagnostics.chatRun=nextRun;state.diagnostics.conversation=nextConversation;
+    hideDiagnosticExport();
+    queueMicrotask(refreshHomeDiagnostics);
+  }
   const note = document.getElementById("chat-history-note");
   const notices = [];
   if (current && current.dropped) notices.push(`${current.dropped} older messages outside the retained display window.`);
@@ -137,7 +147,7 @@ function setBrowserRunPending(pending) {
 
 async function runBrowserOption(option) {
   if (state.browserRunPending) return;
-  if (option.key === "show_mode" && (state.show.dirty || state.show.pending)) { browserStatus("Save Show Mode settings before opening a browser.",true); return; }
+  if (option.key === "show_mode" && (state.show.dirty || state.show.pending)) { browserStatus("Save shared settings before opening a browser.",true); return; }
   const count = Number(document.getElementById("fresh-browser-count").value);
   if (!Number.isInteger(count) || count < 1 || count > 5) {
     browserStatus("Browser count must be between 1 and 5.", true);
@@ -167,7 +177,6 @@ async function runBrowserOption(option) {
 function renderBrowserOptions(options) {
   const root = document.getElementById("browser-options");
   root.innerHTML = "";
-  document.getElementById("show-launch-controls").replaceChildren();
   document.getElementById("browser-available").textContent = `Available: ${options.length}`;
   options.forEach((option, index) => {
     const row = document.createElement("div");
@@ -183,7 +192,7 @@ function renderBrowserOptions(options) {
     row.querySelector("button").dataset.backend = option.key;
     if (option.key === "show_mode") {row.querySelector("button").textContent = "Open Browser / Login";row.querySelector("button").setAttribute("aria-label","Open Show Mode browser for login");}
     row.querySelector("button").addEventListener("click", () => runBrowserOption(option));
-    (option.key === "show_mode" ? document.getElementById("show-launch-controls") : root).appendChild(row);
+    root.appendChild(row);
   });
   setBrowserRunPending(state.browserRunPending);
 }
@@ -245,18 +254,6 @@ function fillForms(snapshot) {
   document.getElementById("evachat-ai-api-key").value = snapshot.message.ai_api_key || "";
   document.getElementById("proxy-enabled").checked = !!snapshot.proxy.enabled;
   document.getElementById("proxy-entries").value = snapshot.proxy.entries || "";
-  document.getElementById("poll-min").value = snapshot.general.poll_min_seconds;
-  document.getElementById("poll-max").value = snapshot.general.poll_max_seconds;
-  document.getElementById("action-min").value = snapshot.general.action_min_seconds;
-  document.getElementById("action-max").value = snapshot.general.action_max_seconds;
-  document.getElementById("match-reply-timeout-min").value = snapshot.general.match_reply_timeout_min_seconds || 60;
-  document.getElementById("match-reply-timeout-max").value = snapshot.general.match_reply_timeout_max_seconds || 60;
-  document.getElementById("match-close-wait-min").value = snapshot.general.match_close_wait_min_seconds || 0;
-  document.getElementById("match-close-wait-max").value = snapshot.general.match_close_wait_max_seconds || 0;
-  document.getElementById("worker-reply-delay-min").value = snapshot.general.reply_delay_min_seconds || 0;
-  document.getElementById("worker-reply-delay-max").value = snapshot.general.reply_delay_max_seconds || 0;
-  fillFirstMessageSettings("standard", snapshot.general.first_message);
-  if (!state.show.loaded && !state.show.dirty) fillShowSettings(snapshot.show_mode || {});
 
   renderBrowserOptions(snapshot.browser_options || []);
   renderHomeStats(snapshot.home);
@@ -293,12 +290,14 @@ async function refreshState() {
   state.snapshot = snapshot;
   fillForms(snapshot);
   await refreshChatTranscript();
+  await refreshSharedSettings();
 }
 
 async function autoRefreshStats() {
   try {
     const snapshot = await invoke("GetInitialState");
     renderHomeStats(snapshot.home);
+    setRunning(!!snapshot.running);
   } catch (err) {
     // ignore
   }
@@ -471,31 +470,12 @@ function bindForms() {
   });
 
   bindTimingSettings();
-  document.getElementById("general-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const status = document.getElementById("standard-save-status");
-    try {
-    validateTimingPairs([["poll-min","poll-max"],["action-min","action-max"],["match-reply-timeout-min","match-reply-timeout-max"],["match-close-wait-min","match-close-wait-max"],["worker-reply-delay-min","worker-reply-delay-max"]]);
-    await invoke("SaveGeneralSettings", {
-      first_message: readFirstMessageSettings("standard"),
-      reply_delay_min_seconds: Number(document.getElementById("worker-reply-delay-min").value),
-      reply_delay_max_seconds: Number(document.getElementById("worker-reply-delay-max").value),
-      poll_min_seconds: Number(document.getElementById("poll-min").value),
-      poll_max_seconds: Number(document.getElementById("poll-max").value),
-      action_min_seconds: Number(document.getElementById("action-min").value),
-      action_max_seconds: Number(document.getElementById("action-max").value),
-      match_reply_timeout_min_seconds: Number(document.getElementById("match-reply-timeout-min").value),
-      match_reply_timeout_max_seconds: Number(document.getElementById("match-reply-timeout-max").value),
-      match_close_wait_min_seconds: Number(document.getElementById("match-close-wait-min").value),
-      match_close_wait_max_seconds: Number(document.getElementById("match-close-wait-max").value),
-    });
-    status.textContent = "Saved — stop and restart Start Bot to apply.";
-    } catch (error) { status.textContent = error.message || String(error); }
-  });
+  document.getElementById("general-form").addEventListener("submit", saveSharedSettings);
 }
 
 function bindActions() {
   document.getElementById("start-bot").addEventListener("click", async () => {
+    if (!sharedSettingsReady()) {document.getElementById("standard-save-status").textContent="Save shared settings before Start.";activateTab("setting");return;}
     await invoke("StartBot");
     await refreshState();
   });
@@ -506,6 +486,7 @@ function bindActions() {
   });
 
   document.getElementById("clean-profiles").addEventListener("click", async () => {
+    if(!window.confirm("Remove saved browser profiles and login sessions? This cannot be undone."))return;
     const summary = document.getElementById("home-summary");
     try {
       await invoke("CleanProfiles");
@@ -579,6 +560,8 @@ async function bootstrap() {
   bindTabs();
   bindForms();
   bindActions();
+  bindWorkspace();
+  bindHomeDiagnostics();
   bindEvents();
   activateTab("home");
 
@@ -590,6 +573,8 @@ async function bootstrap() {
       await refreshShowControl();
       setInterval(refreshShowControl, 1000);
       setInterval(autoRefreshStats, 3000);
+      await refreshHomeDiagnostics();
+      setInterval(refreshHomeDiagnostics, 1000);
       setInterval(refreshChatTranscript, 1000); // replay after missed events / closure
       return;
     } catch (error) {
@@ -624,44 +609,14 @@ function validateTimingPairs(pairs) {
   }
 }
 function bindTimingSettings() {
-  for (const prefix of ["show", "standard"]) {
-    for (const suffix of ["mode", "wait"]) document.getElementById(`${prefix}-first-${suffix}`).addEventListener("change", () => updateFirstMessageControls(prefix));
-    updateFirstMessageControls(prefix);
-  }
-  document.getElementById("manage-show-settings").addEventListener("click", () => { activateTab("browser"); document.getElementById("settings-show").scrollIntoView?.({block:"start"}); });
-  document.getElementById("refresh-show-control").addEventListener("click", refreshShowControl);
-  const showForm = document.getElementById("show-mode-form");
-  for (const event of ["input","change"]) showForm.addEventListener(event, () => {
-    state.show.dirty = true; state.show.edits++;
-    document.getElementById("show-save-status").textContent = "Unsaved changes — Save before opening or starting Show Chat.";
+  for (const suffix of ["mode","wait"]) document.getElementById(`standard-first-${suffix}`).addEventListener("change",()=>updateFirstMessageControls("standard"));
+  updateFirstMessageControls("standard");
+  document.getElementById("refresh-show-control").addEventListener("click",refreshShowControl);
+  document.getElementById("settings-source").addEventListener("change",event=>chooseSharedSource(event.target.value));
+  for(const event of ["input","change"])document.getElementById("general-form").addEventListener(event,()=>{
+    state.show.dirty=true;state.show.edits++;
+    document.getElementById("standard-save-status").textContent="Unsaved changes — Save before starting either mode.";
     renderShowControl();
-  });
-  const enabled = document.getElementById("show-auto-skip");
-  enabled.addEventListener("change", () => {
-    for (const id of ["show-timeout-min", "show-timeout-max"]) document.getElementById(id).disabled = !enabled.checked;
-  });
-  document.getElementById("show-mode-form").addEventListener("submit", async event => {
-    event.preventDefault();
-    const status = document.getElementById("show-save-status");
-    if (state.show.pending || state.show.snapshot?.active) { status.textContent = "Stop all Show chats before editing or saving."; return; }
-    const edits = state.show.edits;
-    try {
-      validateTimingPairs([["reply-delay-min","reply-delay-max"],["show-timeout-min","show-timeout-max"],["show-next-min","show-next-max"]]);
-      const number = id => Number(document.getElementById(id).value);
-      if (enabled.checked && number("show-timeout-min") < 1) throw new Error("Auto skip needs a positive timeout.");
-      const payload = {
-        first_message: readFirstMessageSettings("show"),
-        reply_delay_min_seconds:number("reply-delay-min"), reply_delay_max_seconds:number("reply-delay-max"),
-        auto_skip:enabled.checked, no_reply_min_seconds:number("show-timeout-min"), no_reply_max_seconds:number("show-timeout-max"),
-        next_chat_min_seconds:number("show-next-min"), next_chat_max_seconds:number("show-next-max")
-      };
-      state.show.pending = true; renderShowControl();
-      await invoke("SaveShowModeSettings", payload);
-      if (state.show.edits === edits) state.show.dirty = false;
-      await refreshShowControl();
-      status.textContent = state.show.dirty ? "Saved, but newer edits remain unsaved." : "Saved — press Start Show Chat when logged in. No browser restart required.";
-    } catch (error) { status.textContent = error.message || String(error); }
-    finally { state.show.pending = false; renderShowControl(); }
   });
 }
 
@@ -690,22 +645,13 @@ function readFirstMessageSettings(prefix) {
   return result;
 }
 
-function fillShowSettings(show) {
-  document.getElementById("reply-delay-min").value = show.reply_delay_min_seconds ?? 0;
-  document.getElementById("reply-delay-max").value = show.reply_delay_max_seconds ?? 0;
-  fillFirstMessageSettings("show", show.first_message);
-  document.getElementById("show-auto-skip").checked = !!show.auto_skip;
-  for (const [id,key,fallback] of [["show-timeout-min","no_reply_min_seconds",60],["show-timeout-max","no_reply_max_seconds",60],["show-next-min","next_chat_min_seconds",0],["show-next-max","next_chat_max_seconds",0]]) document.getElementById(id).value = show[key] ?? fallback;
-  state.show.loaded = true;
-}
 async function refreshShowControl() {
   const request = ++state.show.request;
   try {
     const snapshot = await invoke("GetShowControlState");
     if (request !== state.show.request) return;
-    if (!state.show.dirty && (!state.show.loaded || state.show.revision !== snapshot.revision)) fillShowSettings(snapshot.settings);
     state.show.snapshot = snapshot; state.show.revision = snapshot.revision; state.show.known = true;
-    document.getElementById("show-control-status").textContent = snapshot.active ? "Show Chat active — Stop before changing settings." : "Login alone does not start chat. Select a ready browser and press Start Show Chat.";
+    document.getElementById("show-control-status").textContent = snapshot.active ? "Chat is active. Stop it before saving settings." : "Login stays idle until you press Start.";
   } catch (error) {
     if (request !== state.show.request) return;
     state.show.known = false;
@@ -721,41 +667,37 @@ function showSettingsSummary(settings) {
 }
 function renderShowControl() {
   const snap = state.show.snapshot;
-  const locked = !!snap?.active || state.show.pending;
-  const form = document.getElementById("show-mode-form");
-  for (const element of form.querySelectorAll("input,select,button")) element.disabled = locked;
-  if (!locked) {
-    updateFirstMessageControls("show");
-    for (const id of ["show-timeout-min","show-timeout-max"]) document.getElementById(id).disabled = !document.getElementById("show-auto-skip").checked;
-  }
+  renderSharedLock();
   setBrowserRunPending(state.browserRunPending);
   const pill = document.getElementById("show-status-pill");
   pill.textContent = snap?.active ? "Active" : "Stopped";
   pill.className = snap?.active ? "pill running" : "pill stopped";
-  const renderKey = JSON.stringify([snap?.browsers, state.show.pending, state.show.known, state.show.dirty, state.show.revision]);
+  const renderKey = JSON.stringify([snap?.browsers, state.show.pending, state.show.known, state.show.dirty, state.show.revision, sharedSettingsReady()]);
   if (state.show.renderKey === renderKey) return;
   state.show.renderKey = renderKey;
   const box = document.getElementById("show-sessions"); box.replaceChildren();
   for (const browser of snap?.browsers || []) {
     const card = document.createElement("article"); card.className = "show-session-card";
-    for (const text of [`${browser.profile} · Account: ${browser.account || "Waiting for login"}`, `Status: ${browser.status} — ${browser.detail}`, browser.decision ? `This conversation: ${browser.decision}` : "", browser.message_mode ? `Running message mode: ${browser.message_mode}` : "", showSettingsSummary(browser.settings), browser.blocked_by ? `Account in use by ${browser.blocked_by}` : ""]) {
-      if (!text) continue;
-      const p = document.createElement("p");p.textContent = text;card.append(p);
-    }
+    const title=document.createElement("strong");title.textContent=browser.profile;
+    const status=document.createElement("p");status.textContent=`${browser.status} · ${browser.account || "Waiting for login"}`;
+    card.append(title,status);
+    if(browser.blocked_by){const note=document.createElement("p");note.textContent=`Account in use: ${browser.blocked_by}`;card.append(note);}
+    const details=document.createElement("details"),summary=document.createElement("summary"),body=document.createElement("p");summary.textContent="Run details";
+    body.textContent=[browser.detail,browser.decision,browser.message_mode,showSettingsSummary(browser.settings)].filter(Boolean).join(" · ");details.append(summary,body);card.append(details);
     const start = document.createElement("button");start.type = "button";start.className = "primary-button";start.textContent = "Start Show Chat";
-    start.disabled = !state.show.known || state.show.dirty || state.show.pending || browser.status !== "ready" || !!browser.blocked_by;
+    start.disabled = !sharedSettingsReady() || !state.show.known || state.show.dirty || state.show.pending || browser.status !== "ready" || !!browser.blocked_by;
     start.addEventListener("click", () => controlShowChat(browser.id,true));
     const stop = document.createElement("button");stop.type = "button";stop.className = "secondary-button";stop.textContent = "Stop Show Chat";
     stop.disabled = state.show.pending || !["starting","running","stopping"].includes(browser.status);
     stop.addEventListener("click", () => controlShowChat(browser.id,false));
     const actions = document.createElement("div");actions.className = "show-session-actions";actions.append(start,stop);card.append(actions);box.append(card);
   }
-  if (!snap?.browsers?.length) {const p = document.createElement("p");p.textContent = "No Show browser open. Save settings, then Open Browser / Login.";box.append(p);}
+  if (!snap?.browsers?.length) {const p = document.createElement("p");p.textContent = "No browser connected. Open a Show Mode browser and log in to begin.";box.append(p);}
 }
 async function controlShowChat(id,start) {
   const status = document.getElementById("show-control-status");
   if (state.show.pending) return;
-  if (start && (state.show.dirty || !state.show.known)) {status.textContent = "Save settings and refresh status before Start.";return;}
+  if (start && (!sharedSettingsReady() || state.show.dirty || !state.show.known)) {status.textContent = "Save settings and refresh status before Start.";return;}
   state.show.pending = true;renderShowControl();
   try {
     if (start) await invoke("StartShowChat", id, state.show.revision);
@@ -763,4 +705,191 @@ async function controlShowChat(id,start) {
     await refreshShowControl();
   } catch (error) {status.textContent = error.message || String(error);}
   finally {state.show.pending = false;renderShowControl();}
+}
+
+
+function diagnosticSelection() {
+  const d=state.diagnostics, run=d.selected || d.chatRun;
+  return [run, !d.all && run===d.chatRun ? d.conversation : ""];
+}
+function diagnosticKey() { return JSON.stringify([state.diagnostics.selected,...diagnosticSelection()]); }
+function diagnosticButtons() {
+  const d=state.diagnostics, available=d.key===diagnosticKey() && d.snapshot?.runs?.some(r=>r.id===d.snapshot.selected);
+  for (const id of ["diagnostic-copy","diagnostic-clear"]) document.getElementById(id).disabled=d.busy || !available;
+  for (const id of ["diagnostic-run","diagnostic-all"]) document.getElementById(id).disabled=d.busy;
+}
+async function refreshHomeDiagnostics() {
+  if (!document.getElementById("diagnostic-events")) return;
+  if (!backend() || typeof backend().GetHomeDiagnostics!=="function") {
+    document.getElementById("diagnostic-note").textContent="Diagnostics require the updated backend. Standard Bot is not instrumented.";return;
+  }
+  const d=state.diagnostics;if(d.busy)return;
+  const key=diagnosticKey();if(d.pendingKey===key)return;
+  const token=++d.token,args=diagnosticSelection();d.pendingKey=key;diagnosticButtons();
+  try {
+    const snapshot=await invoke("GetHomeDiagnostics",...args);
+    if(token!==d.token || key!==diagnosticKey())return;
+    d.snapshot=snapshot;d.key=key;renderHomeDiagnostics(snapshot,args[1]);
+  } catch (_) {
+    if(token===d.token)document.getElementById("diagnostic-note").textContent="Diagnostics unavailable; no chat control was changed.";
+  }
+  finally {if(token===d.token)d.pendingKey=null;}
+  diagnosticButtons();
+}
+const diagnosticMetricLabels={selected_ms:"Selected delay",configured_min_ms:"Configured min",configured_max_ms:"Configured max",actual_wait_ms:"Actual intentional wait",timer_elapsed_ms:"Timer armed → event elapsed",queue_ms:"Queue wait",detected_to_send_ms:"Detected → send started",detected_to_confirmed_ms:"Detected → confirmed total",send_ms:"Send / confirmation elapsed",pending:"Pending rows",count:"Rows"};
+function renderHomeDiagnostics(snapshot,conversation) {
+  const d=state.diagnostics, runs=snapshot.runs || [],run=runs.find(r=>r.id===snapshot.selected);
+  const select=document.getElementById("diagnostic-run");select.replaceChildren();
+  const automatic=document.createElement("option");automatic.value="";automatic.textContent="Follow selected chat / latest run";select.append(automatic);
+  for(const r of [...runs].reverse()) {
+    const option=document.createElement("option");option.value=r.id;
+    option.textContent=`${r.browser} · ${r.id} · ${r.scope}${r.ended ? " (ended)" : ""}`;select.append(option);
+  }
+  if(d.selected && !runs.some(r=>r.id===d.selected)) {
+    const missing=document.createElement("option");missing.value=d.selected;missing.textContent="Selected run no longer retained";select.append(missing);
+  }
+  select.value=d.selected;
+  document.getElementById("diagnostic-settings").textContent=run ? [run.mode,`${run.scope} · ${run.ended ? "Ended" : "Open"} · ${run.id}`,`Browser: ${run.browser} · Profile: ${run.profile} · Account: ${run.account || "Waiting for login"}`,`Message engine: ${run.message_mode || "Not started"} · Saved revision: ${run.revision}`,`Started: ${run.started}${run.ended ? " · Ended: "+run.ended : ""}`,run.settings ? showSettingsSummary(run.settings).replace("Running settings:",run.ended ? "Stopped run settings:" : "Run settings:") : "Browser/login lifecycle only — select a Chat run for automation settings."].join("\n") : "No retained Show Mode run selected.";
+  const notes=[conversation ? "Filtered to selected chat + run-global events." : "All retained conversations in selected run."];
+  if(run?.dropped)notes.push(`${run.dropped} older events truncated.`);
+  if(run?.cleared)notes.push(`${run.cleared} events cleared from diagnostic view.`);
+  if(snapshot.evicted)notes.push(`${snapshot.evicted} older runs evicted.`);
+  if(snapshot.missed)notes.push(`${snapshot.missed} events omitted to keep observation nonblocking.`);
+  document.getElementById("diagnostic-note").textContent=notes.join(" ");
+  const box=document.getElementById("diagnostic-events"),key=JSON.stringify([snapshot.selected,snapshot.events]);
+  if(d.rendered===key)return;
+  d.rendered=key;
+  const oldTop=box.scrollTop,fragment=document.createDocumentFragment(),chats=new Map();
+  for(const event of snapshot.events || []) {
+    if(event.conversation && !chats.has(event.conversation))chats.set(event.conversation,chats.size+1);
+    const row=document.createElement("div");row.className="diagnostic-event";
+    const heading=document.createElement("strong");
+    heading.textContent=[event.time,event.code,event.conversation ? `Retained chat ${chats.get(event.conversation)}` : "Run",event.reply ? `Reply ${event.reply}` : "",event.part ? `Part ${event.part}` : "",event.wait_kind || "",event.reason || "",event.detected_at ? "Detected at: "+event.detected_at : ""].filter(Boolean).join(" · ");
+    const metrics=document.createElement("div");metrics.textContent=Object.entries(diagnosticMetricLabels).filter(([key])=>Number.isFinite(event.metrics?.[key])).map(([key,label])=>`${label}: ${key.endsWith("_ms") ? (event.metrics[key]/1000).toFixed(3)+"s" : event.metrics[key]}`).join(" · ");
+    row.append(heading,metrics);fragment.append(row);
+  }
+  if(!fragment.childNodes.length) {const empty=document.createElement("p");empty.textContent="No retained events for this selection.";fragment.append(empty);}
+  box.replaceChildren(fragment);box.scrollTop=document.getElementById("diagnostic-scroll").checked ? box.scrollHeight : oldTop;
+}
+// Explicit export schema: never serialize arbitrary backend fields, account,
+// profile, raw conversation IDs, transcript rows or future sensitive settings.
+function diagnosticExport(snapshot) {
+  const run=snapshot.runs.find(r=>r.id===snapshot.selected);if(!run)return null;
+  const s=run.settings,f=s?.first_message,settings=s ? {} : null;
+  for(const key of ["reply_delay_min_seconds","reply_delay_max_seconds","auto_skip","no_reply_min_seconds","no_reply_max_seconds","next_chat_min_seconds","next_chat_max_seconds"])if(s)settings[key]=s[key];
+  if(s)settings.first_message={mode:f?.mode,bot_first_percent:f?.bot_first_percent,wait_timeout:f?.wait_timeout,wait_min_seconds:f?.wait_min_seconds,wait_max_seconds:f?.wait_max_seconds};
+  const chats=new Map();
+  return {schema:1,timing_basis:"runner incoming detection; DOM own-row confirmation is not delivery/read receipt",run:{id:run.id,browser:run.browser,scope:run.scope,mode:run.mode,message_mode:run.message_mode,revision:run.revision,started:run.started,ended:run.ended,settings,dropped:run.dropped,cleared:run.cleared},evicted:snapshot.evicted,missed:snapshot.missed,events:(snapshot.events || []).map(e=>{
+    if(e.conversation && !chats.has(e.conversation))chats.set(e.conversation,`chat_${chats.size+1}`);
+    const metrics={};for(const key of Object.keys(diagnosticMetricLabels))if(Number.isFinite(e.metrics?.[key]))metrics[key]=e.metrics[key];
+    return {sequence:e.sequence,time:e.time,detected_at:e.detected_at,code:e.code,reason:e.reason,conversation:e.conversation ? chats.get(e.conversation) : "",reply:e.reply,part:e.part,wait_kind:e.wait_kind,metrics};
+  })};
+}
+async function copyHomeDiagnostics() {
+  const d=state.diagnostics,run=d.snapshot?.selected;if(!run || d.key!==diagnosticKey() || d.busy)return;
+  const key=diagnosticKey();d.busy=true;++d.token;d.pendingKey=null;diagnosticButtons();
+  try {
+    const snapshot=await invoke("GetHomeDiagnostics",run,"");
+    if(key!==diagnosticKey())return;
+    const payload=diagnosticExport(snapshot);if(!payload)throw new Error("Run no longer retained");
+    const text=JSON.stringify(payload,null,2),fallback=document.getElementById("diagnostic-export");
+    try {await navigator.clipboard.writeText(text);fallback.hidden=true;document.getElementById("diagnostic-note").textContent="Selected run diagnostics copied (all retained conversations; profile/account omitted).";}
+    catch (_) {fallback.value=text;fallback.hidden=false;fallback.focus();fallback.select();document.getElementById("diagnostic-note").textContent="Clipboard unavailable. Copy the selected diagnostic text manually.";}
+  } catch (_) {document.getElementById("diagnostic-note").textContent="Could not copy the selected run.";}
+  finally {d.busy=false;diagnosticButtons();}
+}
+async function clearHomeDiagnostics() {
+  const d=state.diagnostics,run=d.snapshot?.selected;if(!run || d.key!==diagnosticKey() || d.busy)return;
+  d.busy=true;++d.token;d.pendingKey=null;diagnosticButtons();
+  hideDiagnosticExport();
+  let cleared=false;
+  try {await invoke("ClearHomeDiagnostics",run);cleared=true;}
+  catch (_) {document.getElementById("diagnostic-note").textContent="Could not clear diagnostics; chat history and logs.txt were not touched.";}
+  finally {d.busy=false;if(cleared)await refreshHomeDiagnostics();diagnosticButtons();}
+}
+function bindHomeDiagnostics() {
+  document.getElementById("diagnostic-run").addEventListener("change",event=>{state.diagnostics.selected=event.target.value;hideDiagnosticExport();refreshHomeDiagnostics();});
+  document.getElementById("diagnostic-all").addEventListener("change",event=>{state.diagnostics.all=event.target.checked;hideDiagnosticExport();refreshHomeDiagnostics();});
+  document.getElementById("diagnostic-copy").addEventListener("click",copyHomeDiagnostics);
+  document.getElementById("diagnostic-clear").addEventListener("click",clearHomeDiagnostics);
+}
+
+function hideDiagnosticExport() {
+ const box=document.getElementById("diagnostic-export");if(box){box.hidden=true;box.value="";}
+}
+
+
+function sharedSettingsReady() {
+ return state.common.loaded && !!state.common.snapshot?.unified && !state.show.dirty && !state.show.pending;
+}
+function renderSharedLock() {
+ const brief=document.getElementById("shared-settings-summary"),g=state.common.snapshot?.general;
+ if(brief)brief.textContent=state.show.dirty ? "Unsaved settings — Save in Settings before starting." : !state.common.snapshot?.unified ? "Set up shared settings once in Settings before starting." : `Shared settings · Reply ${g.reply_delay_min_seconds}–${g.reply_delay_max_seconds}s · First message: ${g.first_message?.mode || "bot"}`;
+ const form=document.getElementById("general-form");if(!form)return;
+ const locked=state.common.running || !!state.show.snapshot?.active || state.show.pending;
+ for(const element of form.querySelectorAll("input,select,button"))element.disabled=locked || !state.common.loaded;
+ if(!locked && state.common.loaded)updateFirstMessageControls("standard");
+ const start=document.getElementById("start-bot"),stop=document.getElementById("stop-bot");
+ if(start)start.disabled=!sharedSettingsReady() || state.common.running;
+ if(stop)stop.disabled=!state.common.running;
+ const status=document.getElementById("standard-save-status");
+ if(locked && !state.show.pending){status.textContent="Stop running chats before saving shared settings.";status.dataset.runtimeLocked="true";}
+ else if(!locked && status.dataset.runtimeLocked){delete status.dataset.runtimeLocked;status.textContent=state.show.dirty ? "Unsaved changes — Save before Start." : state.common.snapshot?.unified ? "Saved · shared by both modes." : "Choose an existing profile, review, then Save.";}
+}
+function fillSharedValues(g,auto) {
+ fillFirstMessageSettings("standard",g.first_message);
+ for(const [id,key] of [["worker-reply-delay-min","reply_delay_min_seconds"],["worker-reply-delay-max","reply_delay_max_seconds"],["match-reply-timeout-min","match_reply_timeout_min_seconds"],["match-reply-timeout-max","match_reply_timeout_max_seconds"],["match-close-wait-min","match_close_wait_min_seconds"],["match-close-wait-max","match_close_wait_max_seconds"],["poll-min","poll_min_seconds"],["poll-max","poll_max_seconds"],["action-min","action_min_seconds"],["action-max","action_max_seconds"]])document.getElementById(id).value=g[key] ?? 0;
+ document.getElementById("show-auto-skip").checked=!!auto;
+}
+function chooseSharedSource(source) {
+ const snapshot=state.common.snapshot;if(!snapshot || snapshot.unified)return;
+ state.common.source=source;if(!source)return;
+ const g={...snapshot.general};
+ if(source==="show") {
+  const s=snapshot.legacy_show;
+  Object.assign(g,{first_message:s.first_message,reply_delay_min_seconds:s.reply_delay_min_seconds,reply_delay_max_seconds:s.reply_delay_max_seconds,match_reply_timeout_min_seconds:s.no_reply_min_seconds>0 ? s.no_reply_min_seconds : g.match_reply_timeout_min_seconds,match_reply_timeout_max_seconds:s.no_reply_min_seconds>0 ? s.no_reply_max_seconds : g.match_reply_timeout_max_seconds,match_close_wait_min_seconds:s.next_chat_min_seconds,match_close_wait_max_seconds:s.next_chat_max_seconds});
+ }
+ fillSharedValues(g,snapshot.show_auto_skip);
+ document.getElementById("settings-migration-summary").textContent=`Review ${source==="show" ? "Show Mode" : "Standard Bot"} values below. Save applies them to both modes. Poll/action and Show Auto Skip stay mode-specific. A disabled/zero Show timeout uses the existing positive Standard timeout.`;
+ state.show.dirty=true;renderShowControl();
+}
+async function refreshSharedSettings() {
+ const token=++state.common.token,edits=state.show.edits;
+ if(!backend() || typeof backend().GetChatSettings!=="function") {document.getElementById("standard-save-status").textContent="Update the backend to use shared settings.";renderSharedLock();return;}
+ try {
+  const snapshot=await invoke("GetChatSettings");
+  if(token!==state.common.token || edits!==state.show.edits || state.show.dirty)return;
+  state.common.snapshot=snapshot;state.common.loaded=true;
+  document.getElementById("settings-migration").hidden=!!snapshot.unified;
+  if(snapshot.unified)fillSharedValues(snapshot.general,snapshot.show_auto_skip);
+  else {fillSharedValues(snapshot.general,snapshot.show_auto_skip);document.getElementById("settings-source").value="";}
+  document.getElementById("standard-save-status").textContent=snapshot.unified ? "Saved · shared by both modes." : "First setup: choose an existing profile, review, then Save.";
+ } catch (_) {document.getElementById("standard-save-status").textContent="Could not load shared settings. Refresh to try again.";}
+ renderShowControl();
+}
+async function saveSharedSettings(event) {
+ event?.preventDefault();const status=document.getElementById("standard-save-status");
+ if(state.show.pending || state.common.running || state.show.snapshot?.active){status.textContent="Stop all running chats before saving shared settings.";return;}
+ if(!state.common.loaded || (!state.common.snapshot?.unified && !state.common.source)){status.textContent="Choose an existing profile before the first Save.";return;}
+ const edits=state.show.edits;
+ try {
+  const pairs=[["poll-min","poll-max"],["action-min","action-max"],["worker-reply-delay-min","worker-reply-delay-max"],["match-reply-timeout-min","match-reply-timeout-max"],["match-close-wait-min","match-close-wait-max"]];validateTimingPairs(pairs);
+  for(const id of ["poll-min","action-min","match-reply-timeout-min"])if(Number(document.getElementById(id).value)<1)throw new Error("Polling, action and no-reply timeout must be at least 1 second.");
+  const general={first_message:readFirstMessageSettings("standard")};
+  for(const [ids,keys] of [[pairs[0],["poll_min_seconds","poll_max_seconds"]],[pairs[1],["action_min_seconds","action_max_seconds"]],[pairs[2],["reply_delay_min_seconds","reply_delay_max_seconds"]],[pairs[3],["match_reply_timeout_min_seconds","match_reply_timeout_max_seconds"]],[pairs[4],["match_close_wait_min_seconds","match_close_wait_max_seconds"]]])ids.forEach((id,i)=>general[keys[i]]=Number(document.getElementById(id).value));
+  const payload={general,show_auto_skip:document.getElementById("show-auto-skip").checked};
+  state.show.pending=true;renderShowControl();
+  await invoke("SaveChatSettings",payload);
+  if(edits===state.show.edits)state.show.dirty=false;
+  await refreshSharedSettings();await refreshShowControl();
+  status.textContent=state.show.dirty ? "Saved, but newer edits remain unsaved." : "Saved · both modes will use these settings on their next Start.";
+ }catch(error){status.textContent=error.message || String(error);}
+ finally{state.show.pending=false;renderShowControl();}
+}
+function bindWorkspace() {
+ const mode=document.getElementById("workspace-mode");
+ const update=()=>{const show=mode.value==="show";document.getElementById("settings-show").hidden=!show;document.getElementById("standard-actions").hidden=show;document.getElementById("live-chat-workspace").hidden=!show;document.getElementById("standard-mode-note").hidden=show;};
+ mode.addEventListener("change",update);update();
+ for(const button of document.querySelectorAll("[data-open-tab]"))button.addEventListener("click",()=>activateTab(button.dataset.openTab));
+ document.getElementById("diagnostic-details").addEventListener("toggle",event=>document.querySelector(".home-live-grid").classList.toggle("details-open",event.target.open));
 }

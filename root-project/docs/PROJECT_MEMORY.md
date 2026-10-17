@@ -9,7 +9,7 @@ after every meaningful change** (newest last). Never rewrite old entries.
 <!-- AUTO:BEGIN -->
 _Auto status 2026-10-17. Do not edit this block by hand._
 
-- Source fingerprint: `d1181b1618eba624…`
+- Source fingerprint: `1aba52df0357b4dd…`
 - Browser options: `rod`, `chromedp`, `show_mode`
 - Capture tool: v1.2.1
 - Last verification: **BLOCKED** (PASS 3, FAIL 0, BLOCKED 10) — BLOCKED is not PASS; see `verification-output/report.json`
@@ -300,3 +300,34 @@ license, proxy or dependency changes.
   from current source inventory with verification report/checksums. Excludes
   private runtime data, caches and build outputs. Native Windows/live-site
   acceptance remains NOT_RUN; isolated checks do not certify the release gate.
+- 2026-10-17 — Added approved Home chat-adjacent read-only Show Mode diagnostics:
+  frozen running/stopped settings, correlated browser/run/conversation timelines,
+  selected/measured reply/follow-up waits, queue/send/confirmed totals, timer
+  elapsed, lifecycle/first-turn/history/skip/cancel/unconfirmed/safety events.
+  Bounded 12×500 in-memory events; nonblocking append omissions and eviction notices;
+  safe text rendering, stale/slow-request protection, auto-scroll, redacted explicit
+  Copy schema and selected-run-only Clear (never transcript/logs.txt). Standard,
+  drivers, auth, proxy, license, AI/EVA and module files unchanged. See
+  HOME_DIAGNOSTICS.md for timing semantics and limits. Synthetic Node regression,
+  selected-source isolated Go race/vet and isolated Windows compilation evidence
+  recorded during implementation; native Windows/live-site acceptance NOT_RUN.
+  Original full release gate remains BLOCKED in this sandbox.
+- 2026-10-18 — Owner rejected duplicated/complex settings and explicitly selected
+  genuinely shared common settings, superseding earlier profile isolation after
+  explicit first setup. Reworked dashboard: Home mode-aware Start/Stop; Browser
+  launch/login only; one Settings form/Save; common first/reply/no-reply/next-chat
+  values with Standard poll/action and Show Auto Skip in Advanced. First setup
+  requires choosing/reviewing an existing profile, never a silent conflict merge.
+  Existing Badger records plus a sharing marker commit atomically; legacy setters
+  keep common fields synchronized afterward. Saves reject either running mode or
+  draining ownership; Start transition is serialized with shared Save. Added App,
+  store and frontend regression coverage. Diagnostics retained under Details;
+  quieter counters/maintenance, responsive blue/slate styling and compact cards.
+  No driver/auth/proxy/license/AI decision/dependency/installer changes. Native
+  Windows/live-account acceptance NOT_RUN; isolated evidence is not full release
+  certification. See SHARED_DASHBOARD.md for migration and timing differences.
+- 2026-10-18 — Owner authorized GitHub push and a direct download for the
+  simplified shared dashboard plus Home diagnostics. Package the current clean
+  source as root-project-shared-dashboard-UNVERIFIED.zip, including verification
+  report/checksums, excluding runtime/private data, profiles, caches and binaries.
+  Native Windows/live-browser acceptance remains NOT_RUN; full gate BLOCKED.

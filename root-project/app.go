@@ -26,6 +26,7 @@ import (
 )
 
 type App struct {
+	diagnostics      homeDiagnosticsFeed
 	showMu           sync.Mutex
 	showSessions     map[string]*showBrowserSession
 	showSerial       uint64
@@ -459,6 +460,11 @@ func (a *App) SaveProxySettings(settings model.ProxySettings) error {
 	return nil
 }
 
+func (a *App) GetHomeDiagnostics(runID string, conversation string) HomeDiagnosticsSnapshot {
+	return a.diagnostics.snapshot(runID, conversation)
+}
+func (a *App) ClearHomeDiagnostics(runID string) error { return a.diagnostics.clear(runID) }
+
 func (a *App) GetShowControlState() (ShowControlState, error) { return a.showControlState() }
 func (a *App) StartShowChat(id string, revision uint64) error { return a.startShowChat(id, revision) }
 func (a *App) StopShowChat(id string) error                   { return a.stopShowChat(id) }
@@ -468,6 +474,17 @@ func (a *App) SaveShowModeSettings(settings model.ShowModeSettings) error {
 }
 
 func (a *App) SaveGeneralSettings(settings model.GeneralSettings) error {
+	a.showMu.Lock()
+	defer a.showMu.Unlock()
+	unified, err := a.uiStore.ChatSettingsUnified()
+	if err != nil {
+		return err
+	}
+	if unified {
+		if err := a.chatSettingsIdleLocked(); err != nil {
+			return err
+		}
+	}
 	// Freeze legacy migration before accepting a standard-worker-only update.
 	if _, err := a.uiStore.LoadShowModeSettings(); err != nil {
 		return err
@@ -480,6 +497,12 @@ func (a *App) SaveGeneralSettings(settings model.GeneralSettings) error {
 
 	if err := a.uiStore.SaveGeneralSettings(settings); err != nil {
 		return err
+	}
+	if unified {
+		if a.showRevision == 0 {
+			a.showRevision = 1
+		}
+		a.showRevision++
 	}
 	a.log("info", fmt.Sprintf(
 		"Timing settings saved. Poll=%ds-%ds Action=%ds-%ds",
@@ -635,9 +658,11 @@ func (a *App) CleanProfiles() error {
 }
 
 func (a *App) StartBot() error {
+	a.showMu.Lock()
 	a.mu.Lock()
 	if a.running {
 		a.mu.Unlock()
+		a.showMu.Unlock()
 		a.log("info", "Bot is already running.")
 		return nil
 	}
@@ -648,6 +673,7 @@ func (a *App) StartBot() error {
 	a.running = true
 	a.botCancel = cancel
 	a.mu.Unlock()
+	a.showMu.Unlock()
 
 	a.emitStatus(true)
 	a.log("activity", "bot started wait to process")
@@ -1201,4 +1227,9 @@ func (a *App) log(level string, message string) {
 // Separate read-only display API; settings/stats/logs contracts are unchanged.
 func (a *App) GetLiveChatSnapshot(sessionID string) homeChatSnapshot {
 	return a.homeChatFeed().snapshot(sessionID)
+}
+
+func (a *App) GetChatSettings() (model.ChatSettings, error) { return a.getChatSettings() }
+func (a *App) SaveChatSettings(settings model.ChatSettings) error {
+	return a.saveChatSettings(settings)
 }

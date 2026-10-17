@@ -36,13 +36,15 @@ type ShowControlState struct {
 	Browsers []ShowBrowserView      `json:"browsers"`
 }
 type showBrowserSession struct {
-	view       ShowBrowserView
-	ctx        context.Context
-	cancel     context.CancelFunc
-	backend    browser.Backend
-	dom        browser.DOMChatBackend
-	chatCancel context.CancelFunc
-	chatDone   chan struct{}
+	lifecycleDiagnostic string
+	chatDiagnostic      string
+	view                ShowBrowserView
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	backend             browser.Backend
+	dom                 browser.DOMChatBackend
+	chatCancel          context.CancelFunc
+	chatDone            chan struct{}
 }
 
 func (a *App) showControlState() (ShowControlState, error) {
@@ -74,6 +76,15 @@ func (a *App) showControlState() (ShowControlState, error) {
 func (a *App) saveShowSettings(settings model.ShowModeSettings) error {
 	a.showMu.Lock()
 	defer a.showMu.Unlock()
+	unified, err := a.uiStore.ChatSettingsUnified()
+	if err != nil {
+		return err
+	}
+	if unified {
+		if err := a.chatSettingsIdleLocked(); err != nil {
+			return err
+		}
+	}
 	for _, s := range a.showSessions {
 		if s.chatDone != nil {
 			return fmt.Errorf("stop all Show chats before changing Show Mode settings")
@@ -107,6 +118,8 @@ func (a *App) registerShowBrowser(ctx context.Context, backend browser.Backend, 
 	id := fmt.Sprintf("show-%06d", a.showSerial)
 	dom, _ := backend.(browser.DOMChatBackend)
 	s := &showBrowserSession{ctx: ctx, cancel: cancel, backend: backend, dom: dom, view: ShowBrowserView{ID: id, Profile: fmt.Sprintf("%s (%d/%d)", profile, index, total), Status: "login_pending", Detail: "Login required — automation is OFF"}}
+	s.lifecycleDiagnostic = a.diagnostics.start(id, s.view.Profile, "", "Browser lifecycle", "", 0, nil)
+	a.diagnostics.record(s.lifecycleDiagnostic, HomeDiagnosticEvent{Code: "LOGIN_PENDING"})
 	a.showSessions[id] = s
 	return s
 }
@@ -114,11 +127,14 @@ func (a *App) showLoginReady(s *showBrowserSession, login model.LoginInfo) {
 	a.showMu.Lock()
 	defer a.showMu.Unlock()
 	s.view.Account = login.CurrentUserID()
+	a.diagnostics.account(s.lifecycleDiagnostic, s.view.Account)
 	s.view.Status = "ready"
 	s.view.Detail = "Logged in — chat stopped. Press Start Show Chat."
 	if s.dom == nil || s.view.Account == "" {
 		s.view.Status = "error"
 		s.view.Detail = "DOM chat or account identity unavailable; no automation started"
+	} else {
+		a.diagnostics.record(s.lifecycleDiagnostic, HomeDiagnosticEvent{Code: "READY"})
 	}
 }
 func (a *App) detachShowBrowser(s *showBrowserSession) {
@@ -126,6 +142,8 @@ func (a *App) detachShowBrowser(s *showBrowserSession) {
 	_ = a.stopShowChat(s.view.ID)
 	a.showMu.Lock()
 	defer a.showMu.Unlock()
+	a.diagnostics.record(s.lifecycleDiagnostic, HomeDiagnosticEvent{Code: "BROWSER_CLOSED"})
+	a.diagnostics.end(s.lifecycleDiagnostic)
 	s.view.Status = "closed"
 	s.view.Detail = "Browser closed — chat stopped"
 }
@@ -207,6 +225,9 @@ func (a *App) startShowChat(id string, revision uint64) error {
 	a.showMu.Lock()
 	s := a.showSessions[id]
 	if s == nil || s.ctx.Err() != nil || s.view.Status != "ready" || s.chatDone != nil {
+		if s != nil {
+			a.diagnostics.record(s.lifecycleDiagnostic, HomeDiagnosticEvent{Code: "START_FAILED", Reason: "not_ready"})
+		}
 		a.showMu.Unlock()
 		return fmt.Errorf("browser must be logged in and chat stopped before Start")
 	}
@@ -214,6 +235,7 @@ func (a *App) startShowChat(id string, revision uint64) error {
 		a.showRevision = 1
 	}
 	if revision != a.showRevision {
+		a.diagnostics.record(s.lifecycleDiagnostic, HomeDiagnosticEvent{Code: "START_FAILED", Reason: "settings_changed"})
 		a.showMu.Unlock()
 		return fmt.Errorf("saved settings changed; refresh and review before starting")
 	}
@@ -226,11 +248,13 @@ func (a *App) startShowChat(id string, revision uint64) error {
 		messages, err = a.uiStore.LoadMessageSettings()
 	}
 	if err != nil {
+		a.diagnostics.record(s.lifecycleDiagnostic, HomeDiagnosticEvent{Code: "START_FAILED", Reason: "settings_invalid"})
 		a.showMu.Unlock()
 		return err
 	}
 	release, err := a.acquireAutomationLocked(s.view.Account, s.view.ID)
 	if err != nil {
+		a.diagnostics.record(s.lifecycleDiagnostic, HomeDiagnosticEvent{Code: "ACCOUNT_CONFLICT", Reason: "account_busy"})
 		a.showMu.Unlock()
 		return err
 	}
@@ -245,13 +269,19 @@ func (a *App) startShowChat(id string, revision uint64) error {
 	s.view.Settings = &copy
 	s.view.MessageMode = messages.EffectiveChatMode()
 	s.view.Decision = ""
+	s.chatDiagnostic = a.diagnostics.start(id, s.view.Profile, s.view.Account, "Chat run", s.view.MessageMode, a.showRevision, &copy)
+	diagnosticID := s.chatDiagnostic
+	a.diagnostics.record(diagnosticID, HomeDiagnosticEvent{Code: "READY"})
+	a.diagnostics.record(diagnosticID, HomeDiagnosticEvent{Code: "STARTED"})
 	a.showMu.Unlock()
-	go a.executeShowChat(s, ctx, done, settings, messages, release)
+	go a.executeShowChat(s, ctx, done, settings, messages, release, diagnosticID)
 	return nil
 }
-func (a *App) executeShowChat(s *showBrowserSession, ctx context.Context, done chan struct{}, settings model.ShowModeSettings, messages model.MessageSettings, release func()) {
+func (a *App) executeShowChat(s *showBrowserSession, ctx context.Context, done chan struct{}, settings model.ShowModeSettings, messages model.MessageSettings, release func(), diagnosticID string) {
 	detail := "Chat stopped — browser remains open. Start again to use saved settings."
 	defer func() {
+		a.diagnostics.record(diagnosticID, HomeDiagnosticEvent{Code: "STOPPED"})
+		a.diagnostics.end(diagnosticID)
 		release()
 		a.showMu.Lock()
 		if s.chatDone == done {
@@ -269,6 +299,7 @@ func (a *App) executeShowChat(s *showBrowserSession, ctx context.Context, done c
 	// Validate the message engine before any side effect. Freeze message settings
 	// too: later Message-page saves cannot change this run halfway through a chat.
 	if _, _, err := a.newLiveResponderWithSettings(messages); err != nil {
+		a.diagnostics.record(diagnosticID, HomeDiagnosticEvent{Code: "START_FAILED", Reason: "message_engine"})
 		detail = "Cannot start: " + err.Error()
 		return
 	}
@@ -276,16 +307,18 @@ func (a *App) executeShowChat(s *showBrowserSession, ctx context.Context, done c
 	baseline, err := s.dom.ReadDOMSnapshot(baselineCtx)
 	cancel()
 	if err != nil {
+		a.diagnostics.record(diagnosticID, HomeDiagnosticEvent{Code: "START_FAILED", Reason: "baseline_unavailable"})
 		detail = "Cannot start: DOM baseline unavailable; " + err.Error()
 		return
 	}
 	if ctx.Err() != nil {
 		return
 	}
-	observed, stopTranscript := a.startHomeChatObserver(ctx, s.dom, s.view.Profile, 1, 1)
+	observed, stopTranscript := a.startHomeChatObserverForRun(ctx, s.dom, s.view.Profile, 1, 1, diagnosticID)
 	defer stopTranscript()
 	min, max := showModeReplyDelayRange(settings)
 	r := &liveRunner{dom: observed, prefix: "[" + s.view.ID + "]", logf: a.log, newResponder: func() (liveResponder, string, error) { return a.newLiveResponderWithSettings(messages) }, firstMessage: settings.FirstMessage, replyDelayMin: min, replyDelayMax: max, replyDelayRNG: rand.New(rand.NewSource(time.Now().UnixNano())), autoSkip: settings.AutoSkip, noReplyMin: time.Duration(settings.NoReplyMinSeconds) * time.Second, noReplyMax: time.Duration(settings.NoReplyMaxSeconds) * time.Second, nextChatMin: time.Duration(settings.NextChatMinSeconds) * time.Second, nextChatMax: time.Duration(settings.NextChatMaxSeconds) * time.Second, pollInterval: 350 * time.Millisecond, initialBaseline: &baseline}
+	r.onDiagnostic = func(event HomeDiagnosticEvent) { a.diagnostics.record(diagnosticID, event) }
 	r.onProgress = func(detail, decision string) {
 		a.showMu.Lock()
 		defer a.showMu.Unlock()
@@ -312,6 +345,9 @@ func (a *App) stopShowChat(id string) error {
 	}
 	done := s.chatDone
 	if done != nil {
+		if s.view.Status != "stopping" {
+			a.diagnostics.record(s.chatDiagnostic, HomeDiagnosticEvent{Code: "STOP_REQUESTED", Reason: "stop_or_cancel"})
+		}
 		s.view.Status = "stopping"
 		s.view.Detail = "Stopping — waiting for pending automation to drain"
 		s.chatCancel()

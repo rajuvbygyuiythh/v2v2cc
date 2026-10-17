@@ -1,3 +1,7 @@
+> **Superseded after shared setup (2026-10-18):** The owner chose truly shared
+> common settings and a single Settings form. Legacy independent profiles are
+> retained only until the first explicit shared Save. See [SHARED_DASHBOARD.md](SHARED_DASHBOARD.md).
+
 # Independent timing profiles (2026-10-17)
 
 Timing profiles remain independent. Show Mode has moved to Browser; Standard Bot remains in Setting:

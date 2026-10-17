@@ -1,155 +1,77 @@
-const {test} = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const {JSDOM} = require('jsdom');
-const base = path.join(__dirname,'../cmd/chitchatui/frontend/dist');
-function setup() {
- const dom = new JSDOM(fs.readFileSync(path.join(base,'index.html'),'utf8'),{runScripts:'outside-only'});
- const w = dom.window; w.addEventListener=()=>{};
- const calls=[]; const control={revision:1,settings:{},active:false,browsers:[]}; w.go={main:{App:{GetShowControlState:async()=>control,SaveShowModeSettings:async x=>{calls.push(['show',x]);control.settings=x;control.revision++;},SaveGeneralSettings:async x=>calls.push(['standard',x])}}};
- w.eval(fs.readFileSync(path.join(base,'app.js'),'utf8'));
- w.bindForms();
- const d=w.document;
- for(const [id,value] of Object.entries({'reply-delay-min':3,'reply-delay-max':6,'show-timeout-min':30,'show-timeout-max':60,'show-next-min':2,'show-next-max':4,'worker-reply-delay-min':7,'worker-reply-delay-max':9,'poll-min':1,'poll-max':2,'action-min':1,'action-max':3,'match-reply-timeout-min':20,'match-reply-timeout-max':30,'match-close-wait-min':0,'match-close-wait-max':2})) d.getElementById(id).value=value;
- return {dom,w,d,calls};
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const {JSDOM}=require('jsdom');
+const base=path.join(__dirname,'../cmd/chitchatui/frontend/dist');
+const general=()=>({first_message:{mode:'user',bot_first_percent:70,wait_timeout:false,wait_min_seconds:30,wait_max_seconds:60},reply_delay_min_seconds:3,reply_delay_max_seconds:6,match_reply_timeout_min_seconds:30,match_reply_timeout_max_seconds:60,match_close_wait_min_seconds:2,match_close_wait_max_seconds:4,poll_min_seconds:1,poll_max_seconds:2,action_min_seconds:1,action_max_seconds:3});
+const show=()=>({first_message:{mode:'random',bot_first_percent:80,wait_timeout:true,wait_min_seconds:10,wait_max_seconds:20},reply_delay_min_seconds:7,reply_delay_max_seconds:9,no_reply_min_seconds:45,no_reply_max_seconds:50,next_chat_min_seconds:1,next_chat_max_seconds:3,auto_skip:true});
+const readyRow=()=>({id:'show-1',profile:'Profile 1',account:'synthetic',status:'ready',detail:'Logged in',decision:'',message_mode:''});
+async function setup(unified=true,failLoad=false) {
+ const dom=new JSDOM(fs.readFileSync(path.join(base,'index.html'),'utf8'),{runScripts:'outside-only'}),w=dom.window,d=w.document;w.addEventListener=()=>{};
+ const calls=[],settings={general:general(),show_auto_skip:true,unified,legacy_show:show()},control={revision:7,settings:show(),active:false,browsers:[readyRow()]};
+ w.go={main:{App:{GetChatSettings:async()=>{if(failLoad)throw new Error("load failed");return JSON.parse(JSON.stringify(settings));},SaveChatSettings:async x=>{calls.push(['save',x]);Object.assign(settings,JSON.parse(JSON.stringify(x)),{unified:true});control.revision++;},GetShowControlState:async()=>JSON.parse(JSON.stringify(control)),StartShowChat:async(...args)=>{calls.push(['start',...args]);control.active=true;control.browsers[0]={...readyRow(),status:'running',settings:show()};},StopShowChat:async id=>{calls.push(['stop',id]);control.active=false;control.browsers[0]=readyRow();},RunBrowser:async()=>calls.push(['open'])}}};
+ w.eval(fs.readFileSync(path.join(base,'app.js'),'utf8'));w.bindForms();w.bindWorkspace();await w.refreshSharedSettings();await w.refreshShowControl();
+ return {dom,w,d,calls,settings,control};
 }
 const tick=()=>new Promise(r=>setImmediate(r));
-test('Show settings live in Browser only; Standard settings stay separate',()=>{
- const {dom,w,d}=setup();
- assert.equal(d.getElementById('settings-show').closest('[data-panel]').dataset.panel,'browser');
- assert.equal(d.getElementById('settings-standard').closest('[data-panel]').dataset.panel,'setting');
- assert.equal(d.getElementById('settings-standard').hidden,false);
- assert.equal(d.getElementById('start-bot').textContent,'Start Standard Bot');
- assert.equal(d.getElementById('stop-bot').textContent,'Stop Standard Bot');
- d.getElementById('manage-show-settings').click();
- assert.equal(d.querySelector('[data-panel="browser"]').classList.contains('active'),true);
- assert.equal(d.getElementById('reply-delay-min').value,'3');
- assert.equal(d.querySelectorAll('#reply-delay-min').length,1);
- dom.window.close();
+const change=(w,d,id,value)=>{d.getElementById(id).value=value;d.getElementById(id).dispatchEvent(new w.Event('change',{bubbles:true}));};
+test('one common form; Home has controls and Browser has login only',async()=>{
+ const {dom,w,d}=await setup();assert.equal(d.querySelectorAll('#general-form').length,1);assert.equal(d.querySelector('#show-mode-form'),null);assert.equal(d.querySelector('#show-first-mode'),null);
+ assert.equal(d.querySelector('#general-form').closest('[data-panel]').dataset.panel,'setting');assert.equal(d.querySelector('#settings-show').closest('[data-panel]').dataset.panel,'home');
+ assert.equal(d.querySelector('#diagnostic-details').open,false);assert.equal(d.querySelector('.advanced-settings').open,false);
+ assert.equal(d.getElementById('settings-show').hidden,false);change(w,d,'workspace-mode','standard');assert.equal(d.getElementById('settings-show').hidden,true);assert.equal(d.getElementById('standard-actions').hidden,false);
+ d.querySelector('[data-open-tab="setting"]').click();assert.equal(d.querySelector('[data-panel="setting"]').classList.contains('active'),true);dom.window.close();
 });
-test('each Save dispatches only its own timing profile and shows restart notice',async()=>{
- const {dom,w,d,calls}=setup();
- for(const id of ['show-mode-form','general-form']) d.getElementById(id).dispatchEvent(new w.Event('submit',{cancelable:true}));
- await tick();
- assert.deepEqual(calls.map(x=>x[0]),['show','standard']);
- assert.equal(calls[0][1].reply_delay_min_seconds,3);
- assert.equal('poll_min_seconds' in calls[0][1],false);
- assert.equal(calls[1][1].reply_delay_min_seconds,7);
- assert.equal('auto_skip' in calls[1][1],false);
- assert.match(d.getElementById('show-save-status').textContent,/Start Show Chat/);
- assert.match(d.getElementById('standard-save-status').textContent,/restart Start Bot/);
- dom.window.close();
+test('one Save sends common first/timings and mode-specific options atomically',async()=>{
+ const {dom,w,d,calls}=await setup();await w.saveSharedSettings();assert.equal(calls.length,1);const payload=calls[0][1];assert.equal(calls[0][0],'save');assert.equal(payload.general.reply_delay_min_seconds,3);assert.equal(payload.general.first_message.mode,'user');assert.equal(payload.general.poll_min_seconds,1);assert.equal(payload.show_auto_skip,true);assert.match(d.getElementById('standard-save-status').textContent,/both modes/);dom.window.close();
 });
-test('invalid ranges and nonpositive enabled timeout do not reach backend',async()=>{
- const {dom,w,d,calls}=setup();
- d.getElementById('reply-delay-min').value=10;
- d.getElementById('show-mode-form').dispatchEvent(new w.Event('submit',{cancelable:true}));
- await tick(); assert.equal(calls.length,0);
- d.getElementById('reply-delay-min').value=0;
- d.getElementById('show-auto-skip').checked=true;
- d.getElementById('show-timeout-min').value=0;
- d.getElementById('show-mode-form').dispatchEvent(new w.Event('submit',{cancelable:true}));
- await tick(); assert.equal(calls.length,0);
- assert.match(d.getElementById('show-save-status').textContent,/positive timeout/);
- dom.window.close();
+test('first setup requires explicit profile choice and preserves mode-specific values',async()=>{
+ const {dom,w,d,calls}=await setup(false);assert.equal(d.getElementById('settings-migration').hidden,false);await w.saveSharedSettings();assert.equal(calls.length,0);assert.match(d.getElementById('standard-save-status').textContent,/Choose/);
+ change(w,d,'settings-source','show');assert.equal(d.getElementById('worker-reply-delay-min').value,'7');assert.equal(d.getElementById('standard-first-mode').value,'random');assert.equal(d.getElementById('poll-min').value,'1');
+ change(w,d,'settings-source','standard');assert.equal(d.getElementById('worker-reply-delay-min').value,'3');assert.equal(d.getElementById('show-auto-skip').checked,true);await w.saveSharedSettings();assert.equal(calls.length,1);assert.equal(d.getElementById('settings-migration').hidden,true);dom.window.close();
 });
-test('backend failures are visible within the relevant page',async()=>{
- const {dom,w,d}=setup();
- w.go.main.App.SaveShowModeSettings=async()=>{throw Error('disk unavailable')};
- d.getElementById('show-mode-form').dispatchEvent(new w.Event('submit',{cancelable:true}));
- await tick(); assert.match(d.getElementById('show-save-status').textContent,/disk unavailable/);
- dom.window.close();
-});
-
-test('first-message controls reveal only relevant fields and remain independent',()=>{
- const {dom,w,d}=setup();
- const change=(id,value)=>{const e=d.getElementById(id);e.value=value;e.dispatchEvent(new w.Event('change'));};
- assert.equal(d.getElementById('show-first-percent-row').hidden,true);
- assert.equal(d.getElementById('show-first-wait-row').hidden,true);
- change('show-first-mode','random');
- assert.equal(d.getElementById('show-first-percent-row').hidden,false);
- assert.equal(d.getElementById('show-first-wait-row').hidden,false);
- assert.equal(d.getElementById('standard-first-mode').value,'bot');
- change('show-first-wait','skip');assert.equal(d.getElementById('show-first-min').disabled,false);
- change('show-first-mode','user');assert.equal(d.getElementById('show-first-percent-row').hidden,true);
- change('show-first-mode','bot');assert.equal(d.getElementById('show-first-min').disabled,true);
- dom.window.close();
-});
-test('first-message policies save separately and validate probability',async()=>{
- const {dom,w,d,calls}=setup();
- d.getElementById('show-first-mode').value='random';d.getElementById('show-first-percent').value=80;
- d.getElementById('show-first-wait').value='skip';d.getElementById('standard-first-mode').value='user';
- for(const id of ['show-mode-form','general-form']) d.getElementById(id).dispatchEvent(new w.Event('submit',{cancelable:true}));
- await tick();
- assert.equal(calls[0][1].first_message.mode,'random');assert.equal(calls[0][1].first_message.bot_first_percent,80);
- assert.equal(calls[0][1].first_message.wait_timeout,true);
- assert.equal(calls[1][1].first_message.mode,'user');assert.equal(calls[1][1].first_message.wait_timeout,false);
- d.getElementById('show-first-percent').value=101;
- d.getElementById('show-mode-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
- assert.equal(calls.length,2);assert.match(d.getElementById('show-save-status').textContent,/0 to 100/);
- d.getElementById('show-first-percent').value=0;d.getElementById('show-first-min').value=0;
- d.getElementById('show-mode-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
- assert.equal(calls.length,2);assert.match(d.getElementById('show-save-status').textContent,/positive minimum/);
- dom.window.close();
-});
-test('legacy first-message settings remain bot-first with no first-wait timeout',()=>{
- const {dom,w}=setup();
- for(const prefix of ['show','standard']) {
-  w.fillFirstMessageSettings(prefix,undefined);const s=w.readFirstMessageSettings(prefix);
-  assert.equal(s.mode,'bot');assert.equal(s.wait_timeout,false);assert.equal(s.bot_first_percent,70);
+test('invalid ranges, timeout, probability and first-wait cannot reach backend',async()=>{
+ const {dom,w,d,calls}=await setup();
+ for(const [id,value,pattern] of [['worker-reply-delay-min',99,/min/],['match-reply-timeout-min',0,/at least 1/],['standard-first-percent',101,/0 to 100/]]) {
+  w.fillSharedValues(general(),true);d.getElementById(id).value=value;await w.saveSharedSettings();assert.equal(calls.length,0);assert.match(d.getElementById('standard-save-status').textContent,pattern);
  }
- dom.window.close();
+ w.fillSharedValues(general(),true);change(w,d,'standard-first-wait','skip');d.getElementById('standard-first-min').value=0;await w.saveSharedSettings();assert.equal(calls.length,0);assert.match(d.getElementById('standard-save-status').textContent,/positive minimum/);dom.window.close();
 });
-
-const savedShow = {first_message:{mode:'user',bot_first_percent:70,wait_timeout:true,wait_min_seconds:5,wait_max_seconds:8},reply_delay_min_seconds:3,reply_delay_max_seconds:6,auto_skip:true,no_reply_min_seconds:10,no_reply_max_seconds:20,next_chat_min_seconds:5,next_chat_max_seconds:8};
-const readyRow = () => ({id:'show-1',profile:'Profile 1',account:'synthetic',status:'ready',detail:'Logged in — chat stopped',decision:'',message_mode:''});
-test('dirty Show settings prevent Start and browser launch without touching Standard settings',async()=>{
- const {dom,w,d,calls}=setup();
- w.go.main.App.GetShowControlState=async()=>({revision:4,settings:savedShow,active:false,browsers:[readyRow()]});
- await w.refreshShowControl();
- assert.equal(d.querySelector('#show-sessions .primary-button').disabled,false);
- const input=d.getElementById('reply-delay-min');input.value=9;input.dispatchEvent(new w.Event('input',{bubbles:true}));
- assert.equal(d.querySelector('#show-sessions .primary-button').disabled,true);
- w.go.main.App.StartShowChat=async()=>calls.push(['start']);w.go.main.App.RunBrowser=async()=>calls.push(['open']);
- await w.controlShowChat('show-1',true);await w.runBrowserOption({key:'show_mode',label:'Show Mode'});
- assert.equal(calls.length,0);
- assert.match(d.getElementById('browser-status').textContent,/Save Show Mode/);
- await w.refreshShowControl();assert.equal(input.value,'9','poll discarded draft');
- dom.window.close();
+test('first-message control reveals only applicable fields',async()=>{
+ const {dom,w,d}=await setup();change(w,d,'standard-first-mode','bot');assert.equal(d.getElementById('standard-first-wait-row').hidden,true);assert.equal(d.getElementById('standard-first-percent').disabled,true);
+ change(w,d,'standard-first-mode','random');assert.equal(d.getElementById('standard-first-percent-row').hidden,false);change(w,d,'standard-first-wait','skip');assert.equal(d.getElementById('standard-first-min').disabled,false);
+ change(w,d,'standard-first-mode','user');assert.equal(d.getElementById('standard-first-percent-row').hidden,true);dom.window.close();
 });
-test('Start sends saved revision; active summary uses backend settings and controls lock',async()=>{
- const {dom,w,d,calls}=setup();let active=false;
- w.go.main.App.GetShowControlState=async()=>({revision:7,settings:savedShow,active,browsers:[{...readyRow(),status:active?'running':'ready',settings:active?savedShow:undefined,decision:active?'User first':'',message_mode:active?'eva_chat_flow':''}]});
- w.go.main.App.StartShowChat=async(...args)=>{calls.push(['start',...args]);active=true;};
- w.go.main.App.StopShowChat=async id=>{calls.push(['stop',id]);active=false;};
- await w.refreshShowControl();await w.controlShowChat('show-1',true);
- assert.deepEqual(calls,[['start','show-1',7]]);
- assert.equal(d.getElementById('reply-delay-min').disabled,true);
- assert.equal(d.querySelector('#show-sessions .primary-button').disabled,true);
- assert.equal(d.querySelector('#show-sessions .secondary-button').disabled,false);
- assert.match(d.getElementById('show-sessions').textContent,/Running settings: User first.*Reply delay: 3–6s/);
- await w.controlShowChat('show-1',false);
- assert.deepEqual(calls[1],['stop','show-1']);assert.equal(d.getElementById('reply-delay-min').disabled,false);
- dom.window.close();
+test('dirty common settings block both Starts and Show browser launch; polling preserves draft',async()=>{
+ const {dom,w,d,calls}=await setup();change(w,d,'worker-reply-delay-min',9);assert.equal(d.getElementById('start-bot').disabled,true);assert.equal(d.querySelector('#show-sessions .primary-button').disabled,true);
+ await w.controlShowChat('show-1',true);await w.runBrowserOption({key:'show_mode',label:'Show Mode'});assert.equal(calls.length,0);await w.refreshShowControl();await w.refreshSharedSettings();assert.equal(d.getElementById('worker-reply-delay-min').value,'9');dom.window.close();
 });
-test('busy-account snapshot disables Start and renders untrusted labels as text',async()=>{
- const {dom,w,d}=setup();
- w.go.main.App.GetShowControlState=async()=>({revision:1,settings:savedShow,active:false,browsers:[{...readyRow(),profile:'<img src=x onerror=alert(1)>',blocked_by:'standard:1:test'}]});
- await w.refreshShowControl();
- assert.equal(d.querySelector('#show-sessions .primary-button').disabled,true);
- assert.equal(d.querySelector('#show-sessions img'),null);
- assert.match(d.getElementById('show-sessions').textContent,/standard:1:test/);
- dom.window.close();
+test('either running mode locks Save; Show Start sends revision and keeps real frozen summary',async()=>{
+ const {dom,w,d,calls}=await setup();await w.controlShowChat('show-1',true);assert.deepEqual(calls[0],['start','show-1',7]);assert.equal(d.getElementById('worker-reply-delay-min').disabled,true);await w.saveSharedSettings();assert.equal(calls.length,1);assert.match(d.querySelector('#show-sessions').textContent,/Reply delay: 7–9s/);
+ await w.controlShowChat('show-1',false);assert.equal(d.getElementById('worker-reply-delay-min').disabled,false);w.setRunning(true);assert.equal(d.getElementById('save-chat-settings').disabled,true);await w.saveSharedSettings();assert.equal(calls.length,2);w.setRunning(false);assert.equal(d.getElementById('save-chat-settings').disabled,false);dom.window.close();
 });
-test('late status response cannot overwrite a newer snapshot or saved revision',async()=>{
- const {dom,w,d}=setup();const pending=[];
- w.go.main.App.GetShowControlState=()=>new Promise(resolve=>pending.push(resolve));
- const first=w.refreshShowControl();const second=w.refreshShowControl();
- pending[1]({revision:9,settings:savedShow,active:false,browsers:[readyRow()]});await second;
- pending[0]({revision:8,settings:{...savedShow,reply_delay_min_seconds:0},active:true,browsers:[]});await first;
- assert.equal(d.getElementById('reply-delay-min').value,'3');
- assert.equal(d.getElementById('reply-delay-min').disabled,false);
- assert.equal(d.querySelector('#show-sessions .primary-button').disabled,false);
- dom.window.close();
+test('failed Save retains dirty draft and displays error; successful retry works',async()=>{
+ const {dom,w,d,calls}=await setup();const api=w.go.main.App,original=api.SaveChatSettings;api.SaveChatSettings=async()=>{throw new Error('synthetic save failure')};change(w,d,'worker-reply-delay-min',4);await w.saveSharedSettings();assert.match(d.getElementById('standard-save-status').textContent,/synthetic save failure/);assert.equal(d.getElementById('worker-reply-delay-min').value,'4');assert.equal(d.getElementById('start-bot').disabled,true);api.SaveChatSettings=original;await w.saveSharedSettings();assert.equal(calls.length,1);assert.equal(d.getElementById('start-bot').disabled,false);dom.window.close();
+});
+test('busy account and untrusted labels remain safe',async()=>{
+ const {dom,w,d,control}=await setup();control.browsers[0]={...readyRow(),profile:'<img src=x onerror=alert(1)>',blocked_by:'standard:1:test'};await w.refreshShowControl();assert.equal(d.querySelector('#show-sessions .primary-button').disabled,true);assert.equal(d.querySelector('#show-sessions img'),null);assert.match(d.querySelector('#show-sessions').textContent,/standard:1:test/);dom.window.close();
+});
+test('late common response or concurrent draft edit cannot overwrite current form',async()=>{
+ const {dom,w,d}=await setup();const pending=[];w.go.main.App.GetChatSettings=()=>new Promise(resolve=>pending.push(resolve));const first=w.refreshSharedSettings(),second=w.refreshSharedSettings();
+ pending[1]({general:{...general(),reply_delay_min_seconds:5},show_auto_skip:true,unified:true});await second;pending[0]({general:{...general(),reply_delay_min_seconds:1},show_auto_skip:true,unified:true});await first;assert.equal(d.getElementById('worker-reply-delay-min').value,'5');
+ const third=w.refreshSharedSettings();change(w,d,'worker-reply-delay-min',6);pending[2]({general:general(),unified:true});await third;assert.equal(d.getElementById('worker-reply-delay-min').value,'6');dom.window.close();
+});
+test('late Show status response cannot overwrite newer status or revision',async()=>{
+ const {dom,w,d,calls}=await setup(),pending=[];w.go.main.App.GetShowControlState=()=>new Promise(resolve=>pending.push(resolve));const first=w.refreshShowControl(),second=w.refreshShowControl();pending[1]({revision:9,active:false,browsers:[readyRow()]});await second;pending[0]({revision:8,active:true,browsers:[]});await first;assert.equal(d.querySelector('#show-sessions .primary-button').disabled,false);assert.equal(d.getElementById('worker-reply-delay-min').disabled,false);dom.window.close();
+});
+test('Show profile with disabled zero timeout retains a positive Standard timeout for sharing',async()=>{
+ const {dom,w,d,settings}=await setup(false);settings.legacy_show.no_reply_min_seconds=0;settings.legacy_show.no_reply_max_seconds=0;settings.show_auto_skip=false;
+ await w.refreshSharedSettings();change(w,d,'settings-source','show');assert.equal(d.getElementById('match-reply-timeout-min').value,'30');assert.equal(d.getElementById('worker-reply-delay-min').value,'7');dom.window.close();
+});
+test('switching workspace does not start/stop anything or show Show transcript as Standard',async()=>{
+ const {dom,w,d,calls}=await setup();change(w,d,'workspace-mode','standard');assert.equal(d.getElementById('live-chat-workspace').hidden,true);assert.equal(d.getElementById('standard-mode-note').hidden,false);change(w,d,'workspace-mode','show');assert.equal(d.getElementById('live-chat-workspace').hidden,false);assert.equal(calls.length,0);dom.window.close();
+});
+test('loading failure keeps Start/Save disabled; refresh can recover',async()=>{
+ const {dom,w,d,settings}=await setup(true,true);assert.equal(d.getElementById('save-chat-settings').disabled,true);assert.equal(d.getElementById('start-bot').disabled,true);w.go.main.App.GetChatSettings=async()=>settings;await w.refreshSharedSettings();assert.equal(d.getElementById('save-chat-settings').disabled,false);assert.equal(d.querySelector('#show-sessions .primary-button').disabled,false);dom.window.close();
 });

@@ -54,3 +54,9 @@ export interface ShowControlState {
 export function GetShowControlState():Promise<ShowControlState>;
 export function StartShowChat(arg1:string,arg2:number):Promise<void>;
 export function StopShowChat(arg1:string):Promise<void>;
+
+export function GetHomeDiagnostics(arg1:string,arg2:string):Promise<import('../models').main.HomeDiagnosticsSnapshot>;
+export function ClearHomeDiagnostics(arg1:string):Promise<void>;
+
+export function GetChatSettings():Promise<model.ChatSettings>;
+export function SaveChatSettings(arg1:model.ChatSettings):Promise<void>;

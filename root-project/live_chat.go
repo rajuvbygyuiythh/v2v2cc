@@ -171,39 +171,52 @@ func (a *App) newLiveResponderWithSettings(settings model.MessageSettings) (live
 
 // DOM runner: single-consumer queue over the observer's retained rows. Unknown
 // authors are not guessed; uncertain sends pause until a different conversation.
+type liveIncomingTrace struct {
+	id       uint64
+	detected time.Time
+}
+
 type liveRunner struct {
-	initialBaseline          *browser.DOMSnapshot
-	onProgress               func(string, string)
-	firstMessage             model.FirstMessageSettings
-	firstWaiting             bool
-	firstDeadline            time.Time
-	dom                      browser.DOMChatBackend
-	prefix                   string
-	logf                     func(string, string)
-	newResponder             func() (liveResponder, string, error)
-	replyDelayMin            time.Duration
-	replyDelayMax            time.Duration
-	replyDelayRNG            *rand.Rand
-	pollInterval             time.Duration
-	conversation             string
-	controls                 browser.DOMControls
-	responder                liveResponder
-	seenIDs                  map[string]bool
-	queuedIDs                map[string]bool
-	queue                    []browser.DOMMessage
-	paused                   bool
-	rotating                 bool
-	lastStartAt              time.Time
-	lastRotateAt             time.Time
-	lastStepError            string
-	timeoutRotating          bool
-	autoSkip                 bool
-	noReplyMin, noReplyMax   time.Duration
-	nextChatMin, nextChatMax time.Duration
-	replyDeadline            time.Time
-	nextChatAt               time.Time
-	previousPhase            string
-	probeLogged              bool
+	lastCheckReason                                       string
+	onDiagnostic                                          func(HomeDiagnosticEvent)
+	firstWaitStarted, noReplyWaitStarted, nextWaitStarted time.Time
+	incomingTrace                                         map[string]liveIncomingTrace
+	traceSerial                                           uint64
+	activeTrace                                           liveIncomingTrace
+	activeQueueMS                                         float64
+	activeWaitMS                                          float64
+	initialBaseline                                       *browser.DOMSnapshot
+	onProgress                                            func(string, string)
+	firstMessage                                          model.FirstMessageSettings
+	firstWaiting                                          bool
+	firstDeadline                                         time.Time
+	dom                                                   browser.DOMChatBackend
+	prefix                                                string
+	logf                                                  func(string, string)
+	newResponder                                          func() (liveResponder, string, error)
+	replyDelayMin                                         time.Duration
+	replyDelayMax                                         time.Duration
+	replyDelayRNG                                         *rand.Rand
+	pollInterval                                          time.Duration
+	conversation                                          string
+	controls                                              browser.DOMControls
+	responder                                             liveResponder
+	seenIDs                                               map[string]bool
+	queuedIDs                                             map[string]bool
+	queue                                                 []browser.DOMMessage
+	paused                                                bool
+	rotating                                              bool
+	lastStartAt                                           time.Time
+	lastRotateAt                                          time.Time
+	lastStepError                                         string
+	timeoutRotating                                       bool
+	autoSkip                                              bool
+	noReplyMin, noReplyMax                                time.Duration
+	nextChatMin, nextChatMax                              time.Duration
+	replyDeadline                                         time.Time
+	nextChatAt                                            time.Time
+	previousPhase                                         string
+	probeLogged                                           bool
 }
 
 func showModeReplyDelayRange(settings model.ShowModeSettings) (time.Duration, time.Duration) {
@@ -235,6 +248,11 @@ func chooseShowModeReplyDelay(rng *rand.Rand, minDelay, maxDelay time.Duration) 
 }
 
 func (r *liveRunner) run(ctx context.Context) {
+	defer func() {
+		if ctx.Err() != nil {
+			r.diagnostic(HomeDiagnosticEvent{Code: "CANCELLED", Reason: "stop_or_cancel"})
+		}
+	}()
 	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
 	for {
@@ -250,6 +268,13 @@ func (r *liveRunner) run(ctx context.Context) {
 }
 
 func (r *liveRunner) reset(c browser.DOMControls) {
+	if r.conversation != "" && r.conversation != c.Conversation {
+		r.diagnostic(HomeDiagnosticEvent{Code: "CONVERSATION_CHANGED", Reason: "conversation_changed", Metrics: map[string]float64{"pending": float64(len(r.queue))}})
+	}
+	r.activeTrace = liveIncomingTrace{}
+	r.firstWaitStarted = time.Time{}
+	r.noReplyWaitStarted = time.Time{}
+	r.incomingTrace = make(map[string]liveIncomingTrace)
 	r.firstWaiting = false
 	r.firstDeadline = time.Time{}
 	r.timeoutRotating = false
@@ -277,10 +302,15 @@ func (r *liveRunner) step(ctx context.Context) bool {
 		r.logStepError("DOM READ FAILED | " + err.Error())
 		return false
 	}
+	detectedAt := time.Now()
 	c := snapshot.Controls
 	// Remember the chat-to-lobby transition even when the DOM generation changes.
 	if c.Phase != "chatting" && r.previousPhase == "chatting" {
-		r.nextChatAt = time.Now().Add(chooseShowModeReplyDelay(r.replyDelayRNG, r.nextChatMin, r.nextChatMax))
+		armed := time.Now()
+		selected := chooseShowModeReplyDelay(r.replyDelayRNG, r.nextChatMin, r.nextChatMax)
+		r.nextWaitStarted = armed
+		r.nextChatAt = armed.Add(selected)
+		r.diagnostic(HomeDiagnosticEvent{Code: "NEXT_WAIT_ARMED", WaitKind: "next_chat", Metrics: map[string]float64{"selected_ms": milliseconds(selected), "configured_min_ms": milliseconds(r.nextChatMin), "configured_max_ms": milliseconds(r.nextChatMax)}})
 	}
 	r.previousPhase = c.Phase
 	if c.Conversation == "" {
@@ -311,6 +341,11 @@ func (r *liveRunner) step(ctx context.Context) bool {
 				}
 				r.logStepError("START FAILED | " + err.Error())
 			} else if clicked != "" {
+				r.diagnostic(HomeDiagnosticEvent{Code: "START_CLICKED", Reason: "start"})
+				if !r.nextWaitStarted.IsZero() {
+					r.diagnostic(HomeDiagnosticEvent{Code: "WAIT_FINISHED", WaitKind: "next_chat", Metrics: waitElapsed(r.nextWaitStarted)})
+					r.nextWaitStarted = time.Time{}
+				}
 				r.logf("activity", r.prefix+" START clicked | waiting for a new conversation")
 			}
 		} else if !r.probeLogged {
@@ -337,13 +372,18 @@ func (r *liveRunner) step(ctx context.Context) bool {
 	if r.responder == nil {
 		suppressOpener := false
 		if r.initialBaseline != nil {
+			count := 0
 			if r.initialBaseline.Controls.Conversation == c.Conversation {
 				for _, row := range r.initialBaseline.Messages {
 					if row.ID != "" {
 						r.seenIDs[row.ID] = true
+						count++
 						suppressOpener = true
 					}
 				}
+			}
+			if count > 0 {
+				r.diagnostic(HomeDiagnosticEvent{Code: "HISTORY_IGNORED", Reason: "history_ignored", Metrics: map[string]float64{"count": float64(count)}})
 			}
 			r.initialBaseline = nil
 		}
@@ -361,6 +401,7 @@ func (r *liveRunner) step(ctx context.Context) bool {
 			return false
 		}
 		r.responder = responder
+		r.diagnostic(HomeDiagnosticEvent{Code: "CHAT_STARTED"})
 		r.logf("activity", fmt.Sprintf("%s CHAT STARTED | mode=%s history=%d observer=%t", r.prefix, mode, len(r.seenIDs), c.ObserverReady))
 		hasIncoming := false
 		for _, row := range snapshot.Messages {
@@ -377,6 +418,14 @@ func (r *liveRunner) step(ctx context.Context) bool {
 		if suppressOpener {
 			decision = "Existing chat — waiting for a new user message (history ignored)"
 		}
+		reason := "user_first"
+		if botFirst {
+			reason = "bot_first"
+		}
+		if suppressOpener {
+			reason = "history_ignored"
+		}
+		r.diagnostic(HomeDiagnosticEvent{Code: "FIRST_TURN", Reason: reason})
 		r.progress("Waiting for first turn", decision)
 		if botFirst && !hasIncoming {
 			// Recheck just before opening: incoming may have arrived while loading
@@ -390,6 +439,7 @@ func (r *liveRunner) step(ctx context.Context) bool {
 			if fresh.Controls.Conversation != r.conversation {
 				return false
 			}
+			detectedAt = time.Now()
 			snapshot.Messages = fresh.Messages
 			for _, row := range snapshot.Messages {
 				if row.ID != "" && !r.seenIDs[row.ID] && strings.EqualFold(row.Author, c.Partner) && strings.TrimSpace(row.Text) != "" {
@@ -404,9 +454,14 @@ func (r *liveRunner) step(ctx context.Context) bool {
 		r.firstWaiting = true
 		policy := r.firstMessage.Effective()
 		if policy.WaitTimeout {
-			r.firstDeadline = time.Now().Add(policy.WaitDuration(r.replyDelayRNG))
+			armed := time.Now()
+			selected := policy.WaitDuration(r.replyDelayRNG)
+			r.firstWaitStarted = armed
+			r.firstDeadline = armed.Add(selected)
+			r.diagnostic(HomeDiagnosticEvent{Code: "FIRST_WAIT_ARMED", WaitKind: "first_message", Metrics: map[string]float64{"selected_ms": milliseconds(selected), "configured_min_ms": float64(policy.WaitMinSeconds) * 1000, "configured_max_ms": float64(policy.WaitMaxSeconds) * 1000}})
 		}
 		if hasIncoming {
+			r.diagnostic(HomeDiagnosticEvent{Code: "FIRST_TURN_OVERRIDE", Reason: "incoming_already_present"})
 			r.progress("New user message detected — preparing reply", "User already messaged — reply first")
 		}
 		// Fall through: a partner already present must receive a reply, not a second opener.
@@ -423,20 +478,37 @@ func (r *liveRunner) step(ctx context.Context) bool {
 			r.logStepError("AUTHOR UNKNOWN | unread row retained; no text-only echo guessing")
 			continue
 		}
+		if !r.firstWaitStarted.IsZero() {
+			r.diagnostic(HomeDiagnosticEvent{Code: "WAIT_FINISHED", WaitKind: "first_message", Metrics: waitElapsed(r.firstWaitStarted)})
+			r.firstWaitStarted = time.Time{}
+		}
+		if !r.noReplyWaitStarted.IsZero() {
+			r.diagnostic(HomeDiagnosticEvent{Code: "WAIT_FINISHED", WaitKind: "no_reply", Metrics: waitElapsed(r.noReplyWaitStarted)})
+			r.noReplyWaitStarted = time.Time{}
+		}
 		r.firstWaiting = false
 		r.firstDeadline = time.Time{}
 		r.replyDeadline = time.Time{}
 		r.queue = append(r.queue, row)
 		r.queuedIDs[row.ID] = true
+		if r.incomingTrace == nil {
+			r.incomingTrace = make(map[string]liveIncomingTrace)
+		}
+		r.traceSerial++
+		trace := liveIncomingTrace{id: r.traceSerial, detected: detectedAt}
+		r.incomingTrace[row.ID] = trace
+		r.diagnostic(HomeDiagnosticEvent{Code: "INCOMING_DETECTED", DetectedAt: detectedAt.UTC().Format(time.RFC3339Nano), Reply: trace.id, Metrics: map[string]float64{"pending": float64(len(r.queue))}})
 	}
 	if len(r.queue) == 0 {
 		if r.firstWaiting && !r.firstDeadline.IsZero() && !time.Now().Before(r.firstDeadline) {
+			r.diagnostic(HomeDiagnosticEvent{Code: "FIRST_TIMEOUT", WaitKind: "first_message", Metrics: waitElapsed(r.firstWaitStarted)})
 			r.progress("First-message timeout — skipping idle conversation", "")
 			r.timeoutRotating = true
 			r.rotating = true
 			return r.rotate(ctx)
 		}
 		if r.autoSkip && !r.replyDeadline.IsZero() && !time.Now().Before(r.replyDeadline) {
+			r.diagnostic(HomeDiagnosticEvent{Code: "NO_REPLY_TIMEOUT", WaitKind: "no_reply", Metrics: waitElapsed(r.noReplyWaitStarted)})
 			r.progress("No-reply timeout — skipping idle conversation", "")
 			r.replyDeadline = time.Time{}
 			r.timeoutRotating = true
@@ -446,22 +518,45 @@ func (r *liveRunner) step(ctx context.Context) bool {
 		return false
 	}
 	m := r.queue[0]
+	trace := r.incomingTrace[m.ID]
+	queueMS := 0.0
+	if !trace.detected.IsZero() {
+		queueMS = milliseconds(time.Since(trace.detected))
+	}
+	conversation := r.conversation
 	r.logf("activity", fmt.Sprintf("%s INCOMING | partner row accepted; pending=%d", r.prefix, len(r.queue)))
 	replyDelay := chooseShowModeReplyDelay(r.replyDelayRNG, r.replyDelayMin, r.replyDelayMax)
 	r.logf("activity", fmt.Sprintf("%s REPLY DELAY | selected=%s setting=%s-%s", r.prefix, replyDelay, r.replyDelayMin, r.replyDelayMax))
 	r.progress(fmt.Sprintf("Reply pending — waiting %s (configured %s–%s)", replyDelay, r.replyDelayMin, r.replyDelayMax), "")
+	r.diagnostic(HomeDiagnosticEvent{Code: "REPLY_WAIT", Reply: trace.id, WaitKind: "reply", Metrics: map[string]float64{"selected_ms": milliseconds(replyDelay), "configured_min_ms": milliseconds(r.replyDelayMin), "configured_max_ms": milliseconds(r.replyDelayMax), "queue_ms": queueMS}})
+	waitStarted := time.Now()
 	if sleepLive(ctx, replyDelay) {
+		r.diagnostic(HomeDiagnosticEvent{Code: "CANCELLED", Conversation: conversation, Reply: trace.id, Reason: "stop_or_cancel", WaitKind: "reply", Metrics: map[string]float64{"actual_wait_ms": milliseconds(time.Since(waitStarted))}})
 		return true
 	}
+	actualWaitMS := milliseconds(time.Since(waitStarted))
+	r.diagnostic(HomeDiagnosticEvent{Code: "WAIT_FINISHED", Reply: trace.id, WaitKind: "reply", Metrics: map[string]float64{"actual_wait_ms": actualWaitMS}})
 	// Do not let a slow reply or an old batch leak into the next partner's chat.
 	if !r.stillCurrent(ctx) {
+		reason := r.lastCheckReason
+		if ctx.Err() != nil {
+			reason = "stop_or_cancel"
+		}
+		r.diagnostic(HomeDiagnosticEvent{Code: "CANCELLED", Conversation: conversation, Reply: trace.id, Reason: reason})
 		return ctx.Err() != nil
 	}
+	r.activeTrace = trace
+	r.activeQueueMS = queueMS
+	r.activeWaitMS = actualWaitMS
 	generation := r.conversation
 	lines, end := r.responder.Reply(m.Text)
 	r.seenIDs[m.ID] = true
 	delete(r.queuedIDs, m.ID)
 	r.queue = r.queue[1:]
+	delete(r.incomingTrace, m.ID)
+	if len(lines) == 0 {
+		r.diagnostic(HomeDiagnosticEvent{Code: "REPLY_EMPTY", Reply: trace.id, Reason: "flow_no_output"})
+	}
 	if r.sendLines(ctx, lines) {
 		return true
 	}
@@ -477,6 +572,7 @@ func (r *liveRunner) step(ctx context.Context) bool {
 }
 
 func (r *liveRunner) stillCurrent(ctx context.Context) bool {
+	r.lastCheckReason = "inspect_browser"
 	s, err := r.dom.ReadDOMSnapshot(ctx)
 	if err != nil {
 		r.paused = true
@@ -484,6 +580,7 @@ func (r *liveRunner) stillCurrent(ctx context.Context) bool {
 		return false
 	}
 	if s.Controls.Conversation != r.conversation || s.Controls.Phase != "chatting" {
+		r.lastCheckReason = "conversation_changed"
 		r.reset(s.Controls)
 		return false
 	}
@@ -496,28 +593,63 @@ func (r *liveRunner) stillCurrent(ctx context.Context) bool {
 }
 
 func (r *liveRunner) sendLines(ctx context.Context, lines []string) bool {
+	trace := r.activeTrace
+	conversation := r.conversation
+	defer func() { r.activeTrace = liveIncomingTrace{}; r.activeQueueMS = 0; r.activeWaitMS = 0 }()
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		if ctx.Err() != nil {
+			r.diagnostic(HomeDiagnosticEvent{Code: "CANCELLED", Conversation: conversation, Reply: trace.id, Part: i + 1, Reason: "stop_or_cancel"})
 			return true
 		}
 		if i > 0 {
 			delay := chooseShowModeReplyDelay(r.replyDelayRNG, r.replyDelayMin, r.replyDelayMax)
 			r.progress(fmt.Sprintf("Follow-up pending — waiting %s", delay), "")
+			r.diagnostic(HomeDiagnosticEvent{Code: "REPLY_WAIT", Reply: trace.id, Part: i + 1, WaitKind: "follow_up", Metrics: map[string]float64{"selected_ms": milliseconds(delay), "configured_min_ms": milliseconds(r.replyDelayMin), "configured_max_ms": milliseconds(r.replyDelayMax)}})
+			waitStarted := time.Now()
 			if sleepLive(ctx, delay) {
+				r.diagnostic(HomeDiagnosticEvent{Code: "CANCELLED", Conversation: conversation, Reply: trace.id, Part: i + 1, Reason: "stop_or_cancel", WaitKind: "follow_up", Metrics: map[string]float64{"actual_wait_ms": milliseconds(time.Since(waitStarted))}})
 				return true
 			}
+			r.diagnostic(HomeDiagnosticEvent{Code: "WAIT_FINISHED", Reply: trace.id, Part: i + 1, WaitKind: "follow_up", Metrics: map[string]float64{"actual_wait_ms": milliseconds(time.Since(waitStarted))}})
 		}
 		if !r.stillCurrent(ctx) {
+			reason := r.lastCheckReason
+			if ctx.Err() != nil {
+				reason = "stop_or_cancel"
+			}
+			r.diagnostic(HomeDiagnosticEvent{Code: "CANCELLED", Conversation: conversation, Reply: trace.id, Part: i + 1, Reason: reason})
 			return ctx.Err() != nil
 		}
 		if ctx.Err() != nil {
+			r.diagnostic(HomeDiagnosticEvent{Code: "CANCELLED", Conversation: conversation, Reply: trace.id, Part: i + 1, Reason: "stop_or_cancel"})
 			return true
 		}
+		metrics := map[string]float64{}
+		if !trace.detected.IsZero() {
+			metrics["detected_to_send_ms"] = milliseconds(time.Since(trace.detected))
+			metrics["queue_ms"] = r.activeQueueMS
+			if i == 0 {
+				metrics["actual_wait_ms"] = r.activeWaitMS
+			}
+		}
+		r.diagnostic(HomeDiagnosticEvent{Code: "SEND_STARTED", Reply: trace.id, Part: i + 1, Metrics: metrics})
+		sendStarted := time.Now()
 		sent, err := r.dom.SendDOMMessage(ctx, line)
+		metrics = map[string]float64{"send_ms": milliseconds(time.Since(sendStarted))}
+		if err == nil && sent && !trace.detected.IsZero() {
+			metrics["detected_to_confirmed_ms"] = milliseconds(time.Since(trace.detected))
+		}
+		code := "SEND_UNCONFIRMED"
+		reason := "unconfirmed"
+		if err == nil && sent {
+			code = "SEND_CONFIRMED"
+			reason = "confirmed"
+		}
+		r.diagnostic(HomeDiagnosticEvent{Code: code, Conversation: conversation, Reply: trace.id, Part: i + 1, Reason: reason, Metrics: metrics})
 		if err != nil && r.pageGone(err) {
 			return true
 		}
@@ -527,7 +659,11 @@ func (r *liveRunner) sendLines(ctx context.Context, lines []string) bool {
 			return false
 		}
 		if r.autoSkip {
-			r.replyDeadline = time.Now().Add(chooseShowModeReplyDelay(r.replyDelayRNG, r.noReplyMin, r.noReplyMax))
+			armed := time.Now()
+			selected := chooseShowModeReplyDelay(r.replyDelayRNG, r.noReplyMin, r.noReplyMax)
+			r.noReplyWaitStarted = armed
+			r.replyDeadline = armed.Add(selected)
+			r.diagnostic(HomeDiagnosticEvent{Code: "NO_REPLY_ARMED", WaitKind: "no_reply", Metrics: map[string]float64{"selected_ms": milliseconds(selected), "configured_min_ms": milliseconds(r.noReplyMin), "configured_max_ms": milliseconds(r.noReplyMax)}})
 		}
 		r.progress("Send confirmed — waiting for partner", "")
 		r.logf("activity", r.prefix+" SEND CONFIRMED | new own message row observed")
@@ -578,8 +714,20 @@ func (r *liveRunner) rotate(ctx context.Context) bool {
 		r.logStepError("SKIP WAIT | active cycle button unavailable; use the page manually")
 	} else {
 		if r.nextChatAt.IsZero() || time.Now().After(r.nextChatAt) {
-			r.nextChatAt = time.Now().Add(chooseShowModeReplyDelay(r.replyDelayRNG, r.nextChatMin, r.nextChatMax))
+			armed := time.Now()
+			selected := chooseShowModeReplyDelay(r.replyDelayRNG, r.nextChatMin, r.nextChatMax)
+			r.nextWaitStarted = armed
+			r.nextChatAt = armed.Add(selected)
+			r.diagnostic(HomeDiagnosticEvent{Code: "NEXT_WAIT_ARMED", WaitKind: "next_chat", Metrics: map[string]float64{"selected_ms": milliseconds(selected), "configured_min_ms": milliseconds(r.nextChatMin), "configured_max_ms": milliseconds(r.nextChatMax)}})
 		}
+		reason := "skip"
+		if clicked == "START" {
+			reason = "start"
+		}
+		if clicked == "CONFIRM?" {
+			reason = "confirm"
+		}
+		r.diagnostic(HomeDiagnosticEvent{Code: "SKIP_CLICKED", Reason: reason})
 		r.logf("activity", r.prefix+" SKIP | clicked active "+clicked+"; awaiting conversation change")
 		r.lastStartAt = time.Time{}
 	}
@@ -588,7 +736,15 @@ func (r *liveRunner) rotate(ctx context.Context) bool {
 }
 
 func (r *liveRunner) pageGone(err error) bool {
-	return errors.Is(err, browser.ErrPageUnavailable) || errors.Is(err, context.Canceled)
+	gone := errors.Is(err, browser.ErrPageUnavailable) || errors.Is(err, context.Canceled)
+	if gone {
+		reason := "page_unavailable"
+		if errors.Is(err, context.Canceled) {
+			reason = "stop_or_cancel"
+		}
+		r.diagnostic(HomeDiagnosticEvent{Code: "CANCELLED", Reason: reason})
+	}
+	return gone
 }
 func (r *liveRunner) progress(detail, decision string) {
 	if r.onProgress != nil {
@@ -601,6 +757,7 @@ func (r *liveRunner) logStepError(message string) {
 		return
 	}
 	r.lastStepError = message
+	r.diagnostic(HomeDiagnosticEvent{Code: "SAFETY_NOTICE", Reason: "inspect_browser"})
 	r.logf("activity", r.prefix+" "+message)
 }
 func hasDOMButton(buttons []string, label string) bool {
@@ -623,4 +780,23 @@ func sleepLive(ctx context.Context, d time.Duration) bool {
 	case <-timer.C:
 		return false
 	}
+}
+
+// A diagnostic subscriber must never change chat control flow, even if faulty.
+func (r *liveRunner) diagnostic(event HomeDiagnosticEvent) {
+	if r.onDiagnostic == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	if event.Conversation == "" {
+		event.Conversation = r.conversation
+	}
+	r.onDiagnostic(event)
+}
+
+func waitElapsed(start time.Time) map[string]float64 {
+	if start.IsZero() {
+		return nil
+	}
+	return map[string]float64{"timer_elapsed_ms": milliseconds(time.Since(start))}
 }

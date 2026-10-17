@@ -68,7 +68,8 @@ type GeneralSettings struct {
 	ReplyDelayMaxSeconds        int                  `json:"reply_delay_max_seconds"`
 }
 
-// ShowModeSettings is independent of the standard worker timing settings.
+// ShowModeSettings is the Show runner view; after shared setup its common
+// fields are synchronized with GeneralSettings in one transaction.
 type ShowModeSettings struct {
 	FirstMessage         FirstMessageSettings `json:"first_message"`
 	ReplyDelayMinSeconds int                  `json:"reply_delay_min_seconds"`
@@ -262,4 +263,13 @@ func LegacyMessageSequence(firstMessage string, replyMessage string) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// ChatSettings is the single dashboard settings form. LegacyShow is a read-only
+// migration candidate; Unified is set by storage, never trusted from a client.
+type ChatSettings struct {
+	General      GeneralSettings  `json:"general"`
+	ShowAutoSkip bool             `json:"show_auto_skip"`
+	Unified      bool             `json:"unified"`
+	LegacyShow   ShowModeSettings `json:"legacy_show"`
 }

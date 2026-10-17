@@ -286,3 +286,38 @@ test('Proxy button is bound inside the existing form and does not submit Save Pr
   assert.equal(d.querySelector('#test-proxy').type,'button');
   dom.window.close();
 });
+
+test('diagnostics follow transcript correlation, support all conversations, and render safely', async()=>{
+  const calls=[];const run={id:'run-A',browser:'browser-A',profile:'<img src=x onerror=alert(1)>',account:'account',scope:'Chat run',mode:'Show Mode — Rod (visible)',message_mode:'single',revision:3,started:'now',settings:{first_message:{mode:'user'},reply_delay_min_seconds:3,reply_delay_max_seconds:6}};
+  const {dom,w,d}=setup({GetHomeDiagnostics:async(...args)=>{calls.push(args);return {selected:'run-A',runs:[run],events:[{code:'REPLY_WAIT',time:'now',conversation:'chat-A',reply:1,metrics:{selected_ms:4200}}],evicted:1,missed:2}}});
+  w.bindHomeDiagnostics();w.renderChatTranscript({selected:'session',sessions:[{id:'session',label:'A',diagnostic_run:'run-A',conversation:'chat-A'}],messages:[]});await new Promise(r=>setImmediate(r));
+  assert.deepEqual(plain(calls.at(-1)),['run-A','chat-A']);assert.equal(d.querySelector('#diagnostic-settings img'),null);assert.match(d.querySelector('#diagnostic-settings').textContent,/3–6s/);assert.match(d.querySelector('#diagnostic-events').textContent,/4.200s/);assert.match(d.querySelector('#diagnostic-note').textContent,/omitted/);
+  d.querySelector('#diagnostic-all').checked=true;d.querySelector('#diagnostic-all').dispatchEvent(new w.Event('change'));await new Promise(r=>setImmediate(r));assert.deepEqual(plain(calls.at(-1)),['run-A','']);dom.window.close();
+});
+test('diagnostic selection rejects stale responses and retains explicitly evicted run', async()=>{
+  const pending=[];const {dom,w,d}=setup({GetHomeDiagnostics:(...args)=>new Promise(resolve=>pending.push({args,resolve}))});w.bindHomeDiagnostics();const first=w.refreshHomeDiagnostics();
+  const selector=d.querySelector('#diagnostic-run');selector.append(new w.Option('B','run-B'));selector.value='run-B';selector.dispatchEvent(new w.Event('change'));
+  pending[1].resolve({selected:'run-B',runs:[{id:'run-B',profile:'new',scope:'Chat run'}],events:[]});await new Promise(r=>setImmediate(r));pending[0].resolve({selected:'run-A',runs:[{id:'run-A',profile:'OLD',scope:'Chat run'}],events:[]});await first;
+  assert.match(d.querySelector('#diagnostic-settings').textContent,/new/);assert.doesNotMatch(d.querySelector('#diagnostic-settings').textContent,/OLD/);
+  const next=w.refreshHomeDiagnostics();pending[2].resolve({selected:'run-B',runs:[],events:[],evicted:1});await next;assert.equal(selector.value,'run-B');assert.match(selector.selectedOptions[0].textContent,/no longer retained/);assert.equal(d.querySelector('#diagnostic-copy').disabled,true);dom.window.close();
+});
+test('diagnostic copy redacts identity/SMS/secret fields and fetches whole selected run', async()=>{
+  const calls=[];const snapshot={selected:'run',runs:[{id:'run',browser:'b',profile:'PRIVATE_PROFILE',account:'PRIVATE_ACCOUNT',settings:{first_message:{mode:'random',bot_first_percent:50,secret:'SECRET'},reply_delay_min_seconds:3,api_key:'SECRET'},api_key:'SECRET'}],events:[{sequence:1,time:'now',code:'INCOMING_DETECTED',conversation:'PRIVATE_CONVERSATION',text:'PRIVATE_SMS',token:'SECRET',metrics:{selected_ms:123,api_key:777}}]};
+  const {dom,w,d}=setup({GetHomeDiagnostics:async(...a)=>{calls.push(a);return snapshot}});await w.refreshHomeDiagnostics();await w.copyHomeDiagnostics();assert.deepEqual(plain(calls.at(-1)),['run','']);const text=d.querySelector('#diagnostic-export').value;assert.doesNotMatch(text,/PRIVATE_|SECRET|api_key/);assert.match(text,/chat_1/);assert.match(text,/selected_ms/);assert.equal(JSON.parse(text).run.settings.first_message.bot_first_percent,50);dom.window.close();
+});
+test('clear diagnostic view targets one run only and never clears chat/logs', async()=>{
+  let clears=0,events=[{code:'READY'}];const {dom,w,d}=setup({GetHomeDiagnostics:async()=>({selected:'run',runs:[{id:'run',settings:{first_message:{mode:'user'}},cleared:clears}],events}),ClearHomeDiagnostics:async id=>{assert.equal(id,'run');clears++;events=[];},ClearLogs:()=>assert.fail('cleared logs'),ClearLiveChat:()=>assert.fail('cleared chat')});
+  await w.refreshHomeDiagnostics();await w.clearHomeDiagnostics();assert.equal(clears,1);assert.match(d.querySelector('#diagnostic-note').textContent,/cleared/);assert.match(d.querySelector('#diagnostic-events').textContent,/No retained events/);assert.match(d.querySelector('#diagnostic-settings').textContent,/User first/);dom.window.close();
+});
+test('diagnostics support older backends and auto-scroll off preserves reading position', async()=>{
+  const {dom,w,d}=setup();await w.refreshHomeDiagnostics();assert.match(d.querySelector('#diagnostic-note').textContent,/updated backend/);d.querySelector('#diagnostic-scroll').checked=false;const box=d.querySelector('#diagnostic-events');box.scrollTop=47;w.renderHomeDiagnostics({selected:'run',runs:[{id:'run'}],events:[{code:'READY'}]},'');assert.equal(box.scrollTop,47);dom.window.close();
+});
+test('slow diagnostic polling coalesces rather than starving the display', async()=>{
+  let resolve,calls=0;const {dom,w,d}=setup({GetHomeDiagnostics:()=>{calls++;return new Promise(r=>resolve=r)}});
+  const first=w.refreshHomeDiagnostics();await w.refreshHomeDiagnostics();assert.equal(calls,1);
+  resolve({selected:'run',runs:[{id:'run',profile:'slow response'}],events:[]});await first;assert.match(d.querySelector('#diagnostic-settings').textContent,/slow response/);dom.window.close();
+});
+test('failed diagnostic clear keeps visible error and retained events', async()=>{
+  const {dom,w,d}=setup({GetHomeDiagnostics:async()=>({selected:'run',runs:[{id:'run'}],events:[{code:'READY'}]}),ClearHomeDiagnostics:async()=>{throw new Error('synthetic failure')}});
+  await w.refreshHomeDiagnostics();await w.clearHomeDiagnostics();assert.match(d.querySelector('#diagnostic-note').textContent,/Could not clear/);assert.match(d.querySelector('#diagnostic-events').textContent,/READY/);assert.equal(d.querySelector('#diagnostic-clear').disabled,false);dom.window.close();
+});

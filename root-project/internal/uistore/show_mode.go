@@ -27,6 +27,9 @@ func ValidateShowModeSettings(s model.ShowModeSettings) error {
 func (s *Store) LoadShowModeSettings() (model.ShowModeSettings, error) {
 	s.showModeMu.Lock()
 	defer s.showModeMu.Unlock()
+	return s.loadShowModeUnlocked()
+}
+func (s *Store) loadShowModeUnlocked() (model.ShowModeSettings, error) {
 	var result model.ShowModeSettings
 	ok, err := s.loadJSON(keyShowMode, &result)
 	if err != nil || ok {
@@ -54,6 +57,17 @@ func (s *Store) SaveShowModeSettings(settings model.ShowModeSettings) error {
 	defer s.showModeMu.Unlock()
 	if err := ValidateShowModeSettings(settings); err != nil {
 		return err
+	}
+	unified, err := s.chatUnifiedUnlocked()
+	if err != nil {
+		return err
+	}
+	if unified {
+		general, err := s.LoadGeneralSettings()
+		if err != nil {
+			return err
+		}
+		return s.saveChatPairUnlocked(commonFromShow(general, settings), settings.AutoSkip)
 	}
 	return s.saveJSON(keyShowMode, settings)
 }

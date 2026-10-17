@@ -6,7 +6,8 @@ import (
 	"time"
 )
 
-// FirstMessageSettings belongs to one timing profile, never a global policy.
+// FirstMessageSettings is shared by both modes after dashboard shared setup;
+// each running conversation still owns its own first-turn decision.
 type FirstMessageSettings struct {
 	Mode            string `json:"mode"`
 	BotFirstPercent int    `json:"bot_first_percent"`

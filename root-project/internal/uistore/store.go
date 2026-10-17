@@ -187,6 +187,8 @@ func (s *Store) LoadGeneralSettings() (model.GeneralSettings, error) {
 }
 
 func (s *Store) SaveGeneralSettings(settings model.GeneralSettings) error {
+	s.showModeMu.Lock()
+	defer s.showModeMu.Unlock()
 	if err := settings.FirstMessage.Validate(); err != nil {
 		return err
 	}
@@ -213,6 +215,17 @@ func (s *Store) SaveGeneralSettings(settings model.GeneralSettings) error {
 	}
 	if settings.ReplyDelayMaxSeconds < settings.ReplyDelayMinSeconds {
 		settings.ReplyDelayMaxSeconds = settings.ReplyDelayMinSeconds
+	}
+	unified, err := s.chatUnifiedUnlocked()
+	if err != nil {
+		return err
+	}
+	if unified {
+		show, err := s.loadShowModeUnlocked()
+		if err != nil {
+			return err
+		}
+		return s.saveChatPairUnlocked(settings, show.AutoSkip)
 	}
 	return s.saveJSON(keyGeneral, settings)
 }
