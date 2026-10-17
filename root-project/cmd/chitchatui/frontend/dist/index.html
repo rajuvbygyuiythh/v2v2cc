@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ChitChat Bot</title>
-  <link rel="stylesheet" href="./styles.css?v=4">
+  <link rel="stylesheet" href="./styles.css?v=5">
 </head>
 <body>
   <div id="license-overlay" class="license-overlay" style="display: none;">
@@ -301,7 +301,7 @@
             Leave Headless off for manual login. Status below shows the latest fresh-browser activity.
           </div>
         </form>
-        <p class="summary-text">Open a browser, log in, then start its chat from Home. <button type="button" class="text-button" data-open-tab="home">Go to Home →</button></p>
+        <p class="summary-text">Rod / ChromeDP capture login only; use Standard Bot to chat. Show Mode stays open for Start Show Chat in Home. <button type="button" class="text-button" data-open-tab="home">Go to Home →</button></p>
       </section>
 
       <section class="tab-panel" data-panel="setting">
@@ -322,15 +322,24 @@
           <p class="summary-text">Show Mode uses the same silent timeout before the first user message and throughout the conversation. Auto skip is always on; pending replies are never interrupted.</p>
           <details class="advanced-settings" hidden><summary>Advanced · Standard Bot only</summary>
             <div class="advanced-content">
-              <h3>Standard Bot</h3><div class="shared-timing-grid"><fieldset class="timing-pair"><legend>Polling interval</legend><label><span>Min (seconds)</span><input id="poll-min" type="number" min="1" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="poll-max" type="number" min="1" max="86400" step="1" required></label></fieldset><fieldset class="timing-pair"><legend>Action interval</legend><label><span>Min (seconds)</span><input id="action-min" type="number" min="1" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="action-max" type="number" min="1" max="86400" step="1" required></label></fieldset></div>
+              <h3>Standard Bot</h3>
+              <fieldset class="timing-pair" id="standard-policy"><legend>Standard first-message policy</legend>
+                <label>Who starts?<select id="standard-policy-mode"><option value="bot">Bot first</option><option value="user">User first</option><option value="random">Random</option></select></label>
+                <label id="standard-policy-chance-row">Bot first chance (%)<input id="standard-policy-chance" type="number" min="0" max="100" step="1"></label>
+                <label class="checkbox-row"><input id="standard-policy-timeout" type="checkbox"> Skip idle matches while waiting for first SMS</label>
+                <label>First wait min (seconds)<input id="standard-policy-min" type="number" min="1" max="86400" step="1"></label>
+                <label>First wait max (seconds)<input id="standard-policy-max" type="number" min="1" max="86400" step="1"></label>
+                <p class="summary-text">Standard only. DM behavior is unchanged. Show always uses its normal opener and the shared silent timeout.</p>
+              </fieldset><div class="shared-timing-grid"><fieldset class="timing-pair"><legend>Polling interval</legend><label><span>Min (seconds)</span><input id="poll-min" type="number" min="1" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="poll-max" type="number" min="1" max="86400" step="1" required></label></fieldset><fieldset class="timing-pair"><legend>Action interval</legend><label><span>Min (seconds)</span><input id="action-min" type="number" min="1" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="action-max" type="number" min="1" max="86400" step="1" required></label></fieldset></div>
             </div>
           </details>
+          <details class="advanced-settings" id="execution-debug"><summary>Debug · effective settings</summary><p>Read-only saved settings, not unsaved edits. Each Show browser keeps its own frozen snapshot in Run details. Rod / ChromeDP Run is login capture only.</p><p id="execution-settings" class="summary-text" role="status">Loading execution settings…</p></details>
           <div class="settings-save-bar"><p id="standard-save-status" role="status" aria-live="polite">Loading shared settings…</p><button type="submit" id="save-chat-settings" class="primary-button">Save settings</button></div>
         </form>
       </section>
     </main>
   </div>
 
-  <script src="./app.js?v=4"></script>
+  <script src="./app.js?v=5"></script>
 </body>
 </html>

@@ -35,6 +35,7 @@ export function StopBot():Promise<void>;
 export function SaveShowModeSettings(arg1:model.ShowModeSettings):Promise<void>;
 
 export interface ShowBrowserView {
+  execution?:model.ExecutionSettings;
   id: string;
   profile: string;
   account: string;
@@ -60,3 +61,5 @@ export function ClearHomeDiagnostics(arg1:string):Promise<void>;
 
 export function GetChatSettings():Promise<model.ChatSettings>;
 export function SaveChatSettings(arg1:model.ChatSettings):Promise<void>;
+
+export function GetExecutionSettings(arg1:string):Promise<model.ExecutionSettings>;

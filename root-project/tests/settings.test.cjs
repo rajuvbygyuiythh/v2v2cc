@@ -75,3 +75,34 @@ test('switching workspace does not start/stop anything or show Show transcript a
 test('loading failure keeps Start/Save disabled; refresh can recover',async()=>{
  const {dom,w,d,settings}=await setup(true,true);assert.equal(d.getElementById('save-chat-settings').disabled,true);assert.equal(d.getElementById('start-bot').disabled,true);w.go.main.App.GetChatSettings=async()=>settings;await w.refreshSharedSettings();assert.equal(d.getElementById('save-chat-settings').disabled,false);assert.equal(d.querySelector('#show-sessions .primary-button').disabled,false);dom.window.close();
 });
+
+test('Standard restores its first policy in the same contextual form; Show saves only shared values',async()=>{
+ const {dom,w,d,calls}=await setup();
+ assert.equal(d.querySelectorAll('#standard-policy').length,1);assert.equal(d.querySelector('#standard-policy').closest('details').hidden,true);
+ change(w,d,'workspace-mode','standard');assert.equal(d.getElementById('standard-policy-mode').value,'user');assert.equal(d.getElementById('standard-policy-min').disabled,true);
+ change(w,d,'standard-policy-mode','random');change(w,d,'standard-policy-chance',35);d.getElementById('standard-policy-timeout').checked=true;d.getElementById('standard-policy-timeout').dispatchEvent(new w.Event('change',{bubbles:true}));
+ change(w,d,'standard-policy-min',8);change(w,d,'standard-policy-max',11);change(w,d,'poll-min',2);
+ await w.saveSharedSettings();assert.equal(calls[0][1].edit_mode,'standard');assert.deepEqual(JSON.parse(JSON.stringify(calls[0][1].general.first_message)),{mode:'random',bot_first_percent:35,wait_timeout:true,wait_min_seconds:8,wait_max_seconds:11});assert.equal(calls[0][1].general.poll_min_seconds,2);
+ change(w,d,'workspace-mode','show');change(w,d,'poll-min',-999);change(w,d,'standard-policy-chance',999);await w.saveSharedSettings();
+ assert.equal(calls[1][1].edit_mode,'show');assert.equal(calls[1][1].general.poll_min_seconds,2);assert.equal(calls[1][1].general.first_message.bot_first_percent,35);assert.equal(d.querySelector('#standard-policy').closest('details').hidden,true);dom.window.close();
+});
+test('invalid Standard first policy cannot save and running locks cannot be undone by policy changes',async()=>{
+ const {dom,w,d,calls}=await setup();change(w,d,'workspace-mode','standard');change(w,d,'standard-policy-mode','random');change(w,d,'standard-policy-chance',101);
+ await w.saveSharedSettings();assert.equal(calls.length,0);assert.match(d.getElementById('standard-save-status').textContent,/0 to 100/);
+ w.setRunning(true);change(w,d,'standard-policy-mode','random');assert.equal(d.getElementById('standard-policy-chance').disabled,true);assert.equal(d.getElementById('standard-policy-timeout').disabled,true);
+ w.setRunning(false);change(w,d,'standard-policy-chance',25);d.getElementById('standard-policy-timeout').checked=true;change(w,d,'standard-policy-min',0);
+ await w.saveSharedSettings();assert.equal(calls.length,0);assert.match(d.getElementById('standard-save-status').textContent,/positive minimum/);dom.window.close();
+});
+test('read-only mode debug ignores late responses and safely renders backend labels',async()=>{
+ const {dom,w,d}=await setup();const pending=[];
+ w.go.main.App.GetExecutionSettings=mode=>new Promise(resolve=>pending.push({mode,resolve}));
+ const old=w.refreshExecutionPreview();change(w,d,'workspace-mode','standard');
+ assert.deepEqual(pending.map(x=>x.mode),['show','standard']);pending[1].resolve({mode:'standard',driver:'<img src=x onerror=alert(1)>',source:'canonical_v2',revision:3,purpose:'Standard next Start preview',standard:general()});await tick();
+ const wanted=d.getElementById('execution-settings').textContent;assert.match(wanted,/standard/);assert.match(wanted,/Poll 1–2s/);assert.equal(d.querySelector('#execution-settings img'),null);
+ pending[0].resolve({mode:'show',driver:'rod',source:'old'});await old;assert.equal(d.getElementById('execution-settings').textContent,wanted);assert.equal(d.querySelector('#execution-debug input'),null);dom.window.close();
+});
+test('mode switching shares timing drafts but cannot silently discard Standard-only edits',async()=>{
+ const {dom,w,d,calls}=await setup();change(w,d,'worker-reply-delay-min',4);change(w,d,'workspace-mode','standard');assert.equal(d.getElementById('workspace-mode').value,'standard');assert.equal(d.getElementById('worker-reply-delay-min').value,'4');
+ change(w,d,'standard-policy-mode','bot');change(w,d,'workspace-mode','show');assert.equal(d.getElementById('workspace-mode').value,'standard');assert.match(d.getElementById('standard-save-status').textContent,/Save Standard-only/);
+ await w.saveSharedSettings();assert.equal(calls[0][1].edit_mode,'standard');change(w,d,'workspace-mode','show');assert.equal(d.getElementById('workspace-mode').value,'show');assert.equal(d.querySelector('#standard-policy').closest('details').hidden,true);dom.window.close();
+});

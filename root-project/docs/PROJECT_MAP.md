@@ -12,18 +12,18 @@ _Auto-generated 2026-10-17 by `scripts/project-map.cjs`. Do not edit this block 
 
 ## Source inventory
 
-- Total source files: **207** (1262.1 KiB, excluding runtime/private data)
+- Total source files: **208** (1300.6 KiB, excluding runtime/private data)
 
 | Area | Files | Size |
 |---|---:|---:|
-| `internal/` | 98 | 482.6 KiB |
-| `(root files)` | 30 | 241.7 KiB |
+| `internal/` | 98 | 491.4 KiB |
+| `(root files)` | 30 | 251.9 KiB |
 | `capture/` | 25 | 114.1 KiB |
-| `docs/` | 17 | 100.7 KiB |
+| `docs/` | 18 | 108.7 KiB |
 | `apitest/` | 12 | 99.3 KiB |
-| `cmd/` | 9 | 122.4 KiB |
+| `cmd/` | 9 | 129.7 KiB |
 | `scripts/` | 8 | 40.1 KiB |
-| `tests/` | 8 | 61.2 KiB |
+| `tests/` | 8 | 65.4 KiB |
 
 ## Internal Go packages
 
@@ -65,6 +65,7 @@ _Auto-generated 2026-10-17 by `scripts/project-map.cjs`. Do not edit this block 
 - `docs/FIRST_MESSAGE_SETTINGS.md`
 - `docs/HOME_CHAT.md`
 - `docs/HOME_DIAGNOSTICS.md`
+- `docs/MODE_AWARE_SETTINGS.md`
 - `docs/PROJECT_MAP.md`
 - `docs/PROJECT_MEMORY.md`
 - `docs/PROXY_TEST.md`

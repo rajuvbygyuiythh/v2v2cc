@@ -268,6 +268,8 @@ func LegacyMessageSequence(firstMessage string, replyMessage string) string {
 // ChatSettings is the single dashboard settings form. LegacyShow is a read-only
 // migration candidate; Unified is set by storage, never trusted from a client.
 type ChatSettings struct {
+	EditMode     string           `json:"edit_mode,omitempty"`
+	Source       string           `json:"source,omitempty"`
 	General      GeneralSettings  `json:"general"`
 	ShowAutoSkip bool             `json:"show_auto_skip"`
 	Unified      bool             `json:"unified"`
@@ -288,4 +290,22 @@ func (s ShowModeSettings) ThreeTimings() ShowModeSettings {
 	s.FirstMessage.WaitMinSeconds = s.NoReplyMinSeconds
 	s.FirstMessage.WaitMaxSeconds = s.NoReplyMaxSeconds
 	return s
+}
+
+const (
+	ModeStandard = "standard"
+	ModeShow     = "show"
+	ModeLogin    = "login"
+)
+
+// ExecutionSettings is an explicit, read-only engine projection. Only the
+// applicable engine view is populated; drivers are not used to infer mode.
+type ExecutionSettings struct {
+	Mode     string            `json:"mode"`
+	Driver   string            `json:"driver"`
+	Purpose  string            `json:"purpose"`
+	Source   string            `json:"source"`
+	Revision uint64            `json:"revision"`
+	Standard *GeneralSettings  `json:"standard,omitempty"`
+	Show     *ShowModeSettings `json:"show,omitempty"`
 }

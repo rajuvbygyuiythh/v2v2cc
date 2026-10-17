@@ -184,8 +184,12 @@ func TestShowModeNormalizesToVisibleRod(t *testing.T) {
 	}
 }
 
-func TestShowModeDispatchAndSavedDefaults(t *testing.T) {
+func TestShowModeDispatchDoesNotReplaceStandardDefaults(t *testing.T) {
 	a := browserTestApp(t)
+	original := model.BrowserSettings{Backend: "chromedp", Profile: "standard", Headless: true}
+	if err := a.uiStore.SaveBrowserSettings(original); err != nil {
+		t.Fatal(err)
+	}
 	calls := 0
 	err := a.runBrowser(model.BrowserSettings{Backend: "show_mode", Profile: "visible", Headless: true}, 2,
 		func(_, profile string, got model.BrowserSettings, _ *proxy.Entry, index, total int) {
@@ -198,7 +202,32 @@ func TestShowModeDispatchAndSavedDefaults(t *testing.T) {
 		t.Fatalf("Show Mode launch count=%d err=%v", calls, err)
 	}
 	saved, err := a.uiStore.LoadBrowserSettings()
-	if err != nil || saved.Backend != "rod" || saved.Headless || !saved.LiveChat || saved.Profile != "visible" {
-		t.Fatalf("incorrect persisted Show Mode defaults: %#v, %v", saved, err)
+	if err != nil || saved != original {
+		t.Fatalf("Show launch replaced Standard defaults: %#v, %v", saved, err)
+	}
+}
+
+func TestOrdinaryBrowserRequestsCannotEnableShowWithStaleFlag(t *testing.T) {
+	for _, driver := range []string{"rod", "chromedp"} {
+		input := model.BrowserSettings{Backend: driver, LiveChat: true, Headless: true, Profile: driver}
+		got, err := validateBrowserRun(input, 1)
+		if err != nil || got.LiveChat || got.Backend != driver || !got.Headless {
+			t.Fatal("stale execution flag survived", got, err)
+		}
+		a := browserTestApp(t)
+		calls := 0
+		err = a.runBrowser(input, 1, func(_, _ string, settings model.BrowserSettings, _ *proxy.Entry, _, _ int) {
+			calls++
+			if settings.LiveChat {
+				t.Error("ordinary launch registered Show")
+			}
+		})
+		if err != nil || calls != 1 {
+			t.Fatal("dispatch failed", calls, err)
+		}
+		saved, err := a.uiStore.LoadBrowserSettings()
+		if err != nil || saved.LiveChat || saved.Backend != driver {
+			t.Fatal("stale flag persisted", saved, err)
+		}
 	}
 }

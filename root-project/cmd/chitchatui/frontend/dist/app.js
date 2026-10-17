@@ -1,5 +1,6 @@
 const state = {
   common: {loaded:false, snapshot:null, source:"", token:0, running:false},
+  executionRequest:0,
   snapshot: null,
   show: {loaded:false, dirty:false, pending:false, known:false, revision:0, snapshot:null, request:0, edits:0},
   diagnostics: { selected:"", chatRun:"", conversation:"", all:false, token:0, snapshot:null, key:"", rendered:"", busy:false },
@@ -47,7 +48,7 @@ function setRunning(running) {
   const pill = document.getElementById("running-pill");
   pill.textContent = running ? "Running" : "Stopped";
   pill.className = `pill ${running ? "running" : "stopped"}`;
-  renderSharedLock();
+  renderSharedLock();refreshExecutionPreview();
   const cleanButton = document.getElementById("clean-profiles");
   if (cleanButton) {
     cleanButton.disabled = !!running || !!state.show.snapshot?.browsers?.some(b => b.status !== "closed");
@@ -162,7 +163,7 @@ async function runBrowserOption(option) {
   const activityVersion = state.browserActivityVersion;
   browserStatus(`Requesting ${count} fresh ${option.label} browser(s)...`);
   try {
-    await invoke("RunBrowser", settings, count);
+    await invoke("RunBrowser", settings, count);refreshExecutionPreview();
     // A fast worker may already have emitted a failure or login status.
     if (state.browserActivityVersion === activityVersion) {
       browserStatus(`${option.label}: launch request accepted (${count}). Waiting for browser activity...`);
@@ -609,6 +610,7 @@ function validateTimingPairs(pairs) {
   }
 }
 function bindTimingSettings() {
+ for(const id of ["standard-policy-mode","standard-policy-timeout"])document.getElementById(id).addEventListener("change",updateStandardPolicy);
   document.getElementById("refresh-show-control").addEventListener("click",refreshShowControl);
   document.getElementById("settings-source").addEventListener("change",event=>chooseSharedSource(event.target.value));
   for(const event of ["input","change"])document.getElementById("general-form").addEventListener(event,()=>{
@@ -654,7 +656,7 @@ function renderShowControl() {
     card.append(title,status);
     if(browser.blocked_by){const note=document.createElement("p");note.textContent=`Account in use: ${browser.blocked_by}`;card.append(note);}
     const details=document.createElement("details"),summary=document.createElement("summary"),body=document.createElement("p");summary.textContent="Run details";
-    body.textContent=[browser.detail,browser.decision,browser.message_mode,showSettingsSummary(browser.settings)].filter(Boolean).join(" · ");details.append(summary,body);card.append(details);
+    body.textContent=[browser.execution ? `Mode: ${browser.execution.mode} · Driver: ${browser.execution.driver} · Source: ${browser.execution.source} · Revision: ${browser.execution.revision}` : "",browser.detail,browser.decision,browser.message_mode,showSettingsSummary(browser.settings)].filter(Boolean).join(" · ");details.append(summary,body);card.append(details);
     const start = document.createElement("button");start.type = "button";start.className = "primary-button";start.textContent = "Start Show Chat";
     start.disabled = !sharedSettingsReady() || !state.show.known || state.show.dirty || state.show.pending || browser.status !== "ready" || !!browser.blocked_by;
     start.addEventListener("click", () => controlShowChat(browser.id,true));
@@ -799,6 +801,8 @@ function renderSharedLock() {
  const form=document.getElementById("general-form");if(!form)return;
  const locked=state.common.running || !!state.show.snapshot?.active || state.show.pending;
  for(const element of form.querySelectorAll("input,select,button"))element.disabled=locked || !state.common.loaded;
+ if(document.getElementById("workspace-mode").value!=="standard")for(const element of form.querySelector(".advanced-settings").querySelectorAll("input,select"))element.disabled=true;
+ if(!locked && state.common.loaded)updateStandardPolicy();
  const start=document.getElementById("start-bot"),stop=document.getElementById("stop-bot");
  if(start)start.disabled=!sharedSettingsReady() || state.common.running;
  if(stop)stop.disabled=!state.common.running;
@@ -807,6 +811,12 @@ function renderSharedLock() {
  else if(!locked && status.dataset.runtimeLocked){delete status.dataset.runtimeLocked;status.textContent=state.show.dirty ? "Unsaved changes — Save before Start." : state.common.snapshot?.unified ? "Saved · shared by both modes." : "Choose an existing profile, review, then Save.";}
 }
 function fillSharedValues(g) {
+ const f=g.first_message?.mode ? g.first_message : {mode:"bot",bot_first_percent:70,wait_timeout:false,wait_min_seconds:30,wait_max_seconds:60};
+ document.getElementById("standard-policy-mode").value=f.mode;
+ document.getElementById("standard-policy-chance").value=f.bot_first_percent;
+ document.getElementById("standard-policy-timeout").checked=!!f.wait_timeout;
+ document.getElementById("standard-policy-min").value=f.wait_min_seconds;
+ document.getElementById("standard-policy-max").value=f.wait_max_seconds;updateStandardPolicy();
  for(const [id,key] of [["worker-reply-delay-min","reply_delay_min_seconds"],["worker-reply-delay-max","reply_delay_max_seconds"],["match-reply-timeout-min","match_reply_timeout_min_seconds"],["match-reply-timeout-max","match_reply_timeout_max_seconds"],["match-close-wait-min","match_close_wait_min_seconds"],["match-close-wait-max","match_close_wait_max_seconds"],["poll-min","poll_min_seconds"],["poll-max","poll_max_seconds"],["action-min","action_min_seconds"],["action-max","action_max_seconds"]])document.getElementById(id).value=g[key] ?? 0;
 }
 function chooseSharedSource(source) {
@@ -831,7 +841,8 @@ async function refreshSharedSettings() {
   document.getElementById("settings-migration").hidden=!!snapshot.unified;
   if(snapshot.unified)fillSharedValues(snapshot.general);
   else {fillSharedValues(snapshot.general);document.getElementById("settings-source").value="";}
-  document.getElementById("standard-save-status").textContent=snapshot.unified ? "Saved · shared by both modes." : "First setup: choose an existing profile, review, then Save.";
+  refreshExecutionPreview();
+  document.getElementById("standard-save-status").textContent=snapshot.unified ? "Saved · shared by both modes." : snapshot.source==="legacy_conflict" ? "Existing timing records conflict. Choose a source, review, then Save before starting." : "First setup: choose an existing profile, review, then Save.";
  } catch (_) {document.getElementById("standard-save-status").textContent="Could not load shared settings. Refresh to try again.";}
  renderShowControl();
 }
@@ -841,11 +852,12 @@ async function saveSharedSettings(event) {
  if(!state.common.loaded || (!state.common.snapshot?.unified && !state.common.source)){status.textContent="Choose an existing profile before the first Save.";return;}
  const edits=state.show.edits;
  try {
-  const pairs=[["poll-min","poll-max"],["action-min","action-max"],["worker-reply-delay-min","worker-reply-delay-max"],["match-reply-timeout-min","match-reply-timeout-max"],["match-close-wait-min","match-close-wait-max"]];validateTimingPairs(pairs);
-  for(const id of ["poll-min","action-min","match-reply-timeout-min"])if(Number(document.getElementById(id).value)<1)throw new Error("Polling, action and no-reply timeout must be at least 1 second.");
-  const general={first_message:state.common.snapshot.general.first_message};
-  for(const [ids,keys] of [[pairs[0],["poll_min_seconds","poll_max_seconds"]],[pairs[1],["action_min_seconds","action_max_seconds"]],[pairs[2],["reply_delay_min_seconds","reply_delay_max_seconds"]],[pairs[3],["match_reply_timeout_min_seconds","match_reply_timeout_max_seconds"]],[pairs[4],["match_close_wait_min_seconds","match_close_wait_max_seconds"]]])ids.forEach((id,i)=>general[keys[i]]=Number(document.getElementById(id).value));
-  const payload={general};
+  const mode=document.getElementById("workspace-mode").value;
+  const pairs=[["poll-min","poll-max"],["action-min","action-max"],["worker-reply-delay-min","worker-reply-delay-max"],["match-reply-timeout-min","match-reply-timeout-max"],["match-close-wait-min","match-close-wait-max"]];validateTimingPairs(mode==="standard" ? pairs : pairs.slice(2));
+  for(const id of mode==="standard" ? ["poll-min","action-min","match-reply-timeout-min"] : ["match-reply-timeout-min"])if(Number(document.getElementById(id).value)<1)throw new Error("Polling, action and no-reply timeout must be at least 1 second.");
+  const general={...state.common.snapshot.general,first_message:mode==="standard" ? readStandardPolicy() : state.common.snapshot.general.first_message};
+  for(const [ids,keys] of [[pairs[0],["poll_min_seconds","poll_max_seconds"]],[pairs[1],["action_min_seconds","action_max_seconds"]],[pairs[2],["reply_delay_min_seconds","reply_delay_max_seconds"]],[pairs[3],["match_reply_timeout_min_seconds","match_reply_timeout_max_seconds"]],[pairs[4],["match_close_wait_min_seconds","match_close_wait_max_seconds"]]])ids.forEach((id,i)=>{if(mode==="standard" || !["poll-min","poll-max","action-min","action-max"].includes(id))general[keys[i]]=Number(document.getElementById(id).value);});
+  const payload={general,edit_mode:mode};
   state.show.pending=true;renderShowControl();
   await invoke("SaveChatSettings",payload);
   if(edits===state.show.edits)state.show.dirty=false;
@@ -855,9 +867,51 @@ async function saveSharedSettings(event) {
  finally{state.show.pending=false;renderShowControl();}
 }
 function bindWorkspace() {
- const mode=document.getElementById("workspace-mode");
- const update=()=>{const show=mode.value==="show";document.getElementById("settings-show").hidden=!show;document.getElementById("standard-actions").hidden=show;document.getElementById("live-chat-workspace").hidden=!show;document.getElementById("standard-mode-note").hidden=show;const advanced=document.querySelector("#general-form .advanced-settings");advanced.hidden=show;if(show)advanced.open=false;};
+ const mode=document.getElementById("workspace-mode");let previousMode=mode.value;
+ const update=()=>{
+  if(previousMode==="standard" && mode.value==="show" && state.show.dirty && standardDraftChanged()){
+   mode.value=previousMode;document.getElementById("standard-save-status").textContent="Save Standard-only changes before switching to Show Mode.";return;
+  }
+  previousMode=mode.value;const show=mode.value==="show";document.getElementById("settings-show").hidden=!show;document.getElementById("standard-actions").hidden=show;document.getElementById("live-chat-workspace").hidden=!show;document.getElementById("standard-mode-note").hidden=show;const advanced=document.querySelector("#general-form .advanced-settings");advanced.hidden=show;if(show)advanced.open=false;renderSharedLock();refreshExecutionPreview();};
  mode.addEventListener("change",update);update();
  for(const button of document.querySelectorAll("[data-open-tab]"))button.addEventListener("click",()=>activateTab(button.dataset.openTab));
  document.getElementById("diagnostic-details").addEventListener("toggle",event=>document.querySelector(".home-live-grid").classList.toggle("details-open",event.target.open));
+}
+
+
+function updateStandardPolicy() {
+ const mode=document.getElementById("standard-policy-mode").value,wait=document.getElementById("standard-policy-timeout").checked;
+ const locked=state.common.running || !!state.show.snapshot?.active || state.show.pending || !state.common.loaded || document.getElementById("workspace-mode").value!=="standard";
+ document.getElementById("standard-policy-chance-row").hidden=mode!=="random";
+ document.getElementById("standard-policy-chance").disabled=locked || mode!=="random";
+ document.getElementById("standard-policy-timeout").disabled=locked || mode==="bot";
+ for(const id of ["standard-policy-min","standard-policy-max"])document.getElementById(id).disabled=locked || mode==="bot" || !wait;
+}
+function standardPolicyDraft() {
+ const value=id=>document.getElementById(id).value;
+ return {mode:value("standard-policy-mode"),bot_first_percent:Number(value("standard-policy-chance")),wait_timeout:document.getElementById("standard-policy-timeout").checked,wait_min_seconds:Number(value("standard-policy-min")),wait_max_seconds:Number(value("standard-policy-max"))};
+}
+function standardDraftChanged(){
+ const g=state.common.snapshot?.general;if(!g)return false;
+ const f=g.first_message?.mode ? g.first_message : {mode:"bot",bot_first_percent:70,wait_timeout:false,wait_min_seconds:30,wait_max_seconds:60};
+ const draft=standardPolicyDraft();
+ return Object.keys(draft).some(key=>draft[key]!==f[key]) || [["poll-min","poll_min_seconds"],["poll-max","poll_max_seconds"],["action-min","action_min_seconds"],["action-max","action_max_seconds"]].some(([id,key])=>Number(document.getElementById(id).value)!==g[key]);
+}
+function readStandardPolicy() {
+ const f=standardPolicyDraft();
+ if(!["bot","user","random"].includes(f.mode))throw new Error("Choose a Standard first-message policy.");
+ if(!Number.isInteger(f.bot_first_percent) || f.bot_first_percent<0 || f.bot_first_percent>100)throw new Error("Bot first chance must be 0 to 100.");
+ validateTimingPairs([["standard-policy-min","standard-policy-max"]]);
+ if(f.wait_timeout && f.wait_min_seconds<1)throw new Error("First wait needs a positive minimum.");
+ return f;
+}
+async function refreshExecutionPreview() {
+ const token=++state.executionRequest,mode=document.getElementById("workspace-mode").value,box=document.getElementById("execution-settings");
+ if(!backend() || typeof backend().GetExecutionSettings!=="function"){box.textContent="Detailed execution settings require the updated backend.";return;}
+ try {
+  const r=await invoke("GetExecutionSettings",mode);
+  if(token!==state.executionRequest || mode!==document.getElementById("workspace-mode").value)return;
+  const g=r.standard;
+  box.textContent=[`Mode: ${r.mode} · Driver: ${r.driver} · Source: ${r.source} · Revision: ${r.revision}`,r.purpose,r.show ? showSettingsSummary(r.show) : g ? `Reply ${g.reply_delay_min_seconds}–${g.reply_delay_max_seconds}s · Idle ${g.match_reply_timeout_min_seconds}–${g.match_reply_timeout_max_seconds}s · Next chat ${g.match_close_wait_min_seconds}–${g.match_close_wait_max_seconds}s · Poll ${g.poll_min_seconds}–${g.poll_max_seconds}s · Action ${g.action_min_seconds}–${g.action_max_seconds}s · First: ${g.first_message?.mode || "bot"}` : "No chat timings apply."].join("\n");
+ }catch(_){if(token===state.executionRequest)box.textContent="Could not resolve execution settings. Review settings before Start.";}
 }

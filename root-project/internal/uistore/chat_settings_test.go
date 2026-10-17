@@ -163,3 +163,157 @@ func TestSharedConcurrentSavesKeepSnapshotConsistent(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestCanonicalRecordIgnoresLegacyBackupsAndSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := sharedFixture()
+	if err = s.SaveChatSettings(want); err != nil {
+		t.Fatal(err)
+	}
+	var raw model.GeneralSettings
+	if ok, err := s.loadJSON(keyGeneral, &raw); err != nil || ok {
+		t.Fatal("canonical save wrote legacy general", ok, err)
+	}
+	// Simulate stale legacy records without going through compatibility setters.
+	stale := want.General
+	stale.ReplyDelayMaxSeconds = 999
+	if err = s.saveJSON(keyGeneral, stale); err != nil {
+		t.Fatal(err)
+	}
+	oldShow := sharedShow(stale, true)
+	if err = s.saveJSON(keyShowMode, oldShow); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	got, err := s.LoadChatSettings()
+	if err != nil || got.Source != "canonical_v2" || got.General != want.General || got.LegacyShow != sharedShow(want.General, true) {
+		t.Fatal("stale backup won", got, err)
+	}
+	next := want.General
+	next.PollMinSeconds = 7
+	next.PollMaxSeconds = 8
+	if err = s.SaveGeneralSettings(next); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.loadJSON(keyGeneral, &raw)
+	if err != nil || raw != stale {
+		t.Fatal("legacy backup was rewritten", raw, err)
+	}
+	show, _ := s.LoadShowModeSettings()
+	if show != sharedShow(next, true) {
+		t.Fatal("canonical projection drifted", show)
+	}
+}
+func TestV1MigrationKeepsPolicyAndRejectsDivergentCommonValues(t *testing.T) {
+	for _, conflict := range []bool{false, true} {
+		t.Run(map[bool]string{false: "consistent", true: "conflict"}[conflict], func(t *testing.T) {
+			s, err := Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			g := sharedFixture().General
+			show := sharedShow(g, true)
+			if conflict {
+				show.ReplyDelayMaxSeconds++
+			}
+			for key, value := range map[string]interface{}{keyGeneral: g, keyShowMode: show, keyChatUnified: true} {
+				if err = s.saveJSON(key, value); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := s.LoadChatSettings()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !conflict {
+				if !got.Unified || got.Source != "canonical_v2" || got.General != g {
+					t.Fatal("migration lost Standard policy", got)
+				}
+				return
+			}
+			if got.Unified || got.Source != "legacy_conflict" || got.General != g || got.LegacyShow != show {
+				t.Fatal("silent conflict resolution", got)
+			}
+			for _, mode := range []string{model.ModeStandard, model.ModeShow} {
+				if _, err = s.ResolveChatSettings(mode); err == nil {
+					t.Fatal("conflict reached engine", mode)
+				}
+			}
+			if s.SaveGeneralSettings(g) == nil || s.SaveShowModeSettings(show) == nil {
+				t.Fatal("legacy setter silently resolved conflict")
+			}
+			var canonical model.GeneralSettings
+			if ok, _ := s.loadJSON(keyChatCanonical, &canonical); ok {
+				t.Fatal("conflict wrote canonical")
+			}
+			// An explicit common Save is the only authorized conflict resolution.
+			if err = s.SaveChatSettings(model.ChatSettings{General: commonFromShow(g, show)}); err != nil {
+				t.Fatal(err)
+			}
+			got, err = s.LoadChatSettings()
+			if err != nil || !got.Unified || got.Source != "canonical_v2" || got.General.FirstMessage != g.FirstMessage {
+				t.Fatal(got, err)
+			}
+		})
+	}
+}
+func TestResolverModeViewsAreValidatedAndDetached(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	want := sharedFixture()
+	if err = s.SaveChatSettings(want); err != nil {
+		t.Fatal(err)
+	}
+	std, err := s.ResolveChatSettings(model.ModeStandard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	show, err := s.ResolveChatSettings(model.ModeShow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if std.Standard == nil || std.Show != nil || show.Standard != nil || show.Show == nil || !show.Show.AutoSkip || show.Show.FirstMessage.Mode != "bot" || std.Standard.FirstMessage != want.General.FirstMessage {
+		t.Fatal("wrong engine projection", std, show)
+	}
+	std.Standard.PollMinSeconds = 333
+	show.Show.NoReplyMinSeconds = 444
+	again, _ := s.LoadChatSettings()
+	if again.General != want.General {
+		t.Fatal("mutated store via returned pointer")
+	}
+	for _, mode := range []string{"", "rod", "chromedp", "show_mode", model.ModeLogin} {
+		if _, err = s.ResolveChatSettings(mode); err == nil {
+			t.Fatal("driver/unknown mode treated as chat engine", mode)
+		}
+	}
+	// Corrupt canonical values must not fall back to valid legacy records.
+	bad := want.General
+	bad.MatchReplyTimeoutMinSeconds = 0
+	if err = s.saveJSON(keyChatCanonical, bad); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.LoadGeneralSettings(); err == nil {
+		t.Fatal("invalid canonical accepted")
+	}
+	if _, err = s.LoadShowModeSettings(); err == nil {
+		t.Fatal("invalid canonical masked by legacy Show")
+	}
+	if _, err = s.ResolveChatSettings(model.ModeShow); err == nil {
+		t.Fatal("invalid canonical reached Show")
+	}
+}

@@ -333,3 +333,39 @@ func TestStandardPreflightDetectsSavedShowAccount(t *testing.T) {
 		t.Fatal("saved-account preflight ignored active owner")
 	}
 }
+
+func TestShowExecutionDetailsAreFrozenAndIsolatedPerSession(t *testing.T) {
+	a := browserTestApp(t)
+	settings := appSharedFixture()
+	if err := a.SaveChatSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	first := readyShow(t, a, &fakeDOMBackend{controls: browser.DOMControls{HasInput: true, Buttons: []string{"SKIP"}}}, "frozen-first")
+	second := readyShow(t, a, &fakeDOMBackend{controls: browser.DOMControls{HasInput: true, Buttons: []string{"SKIP"}}}, "frozen-second")
+	startShow(t, a, first.view.ID)
+	startShow(t, a, second.view.ID)
+	before := showView(t, a, first.view.ID)
+	other := showView(t, a, second.view.ID)
+	if before.Execution == nil || before.Execution.Mode != model.ModeShow || before.Execution.Driver != "rod" || before.Execution.Source != "canonical_v2" || before.Execution.Show == nil || before.Execution.Revision == 0 {
+		t.Fatal("missing effective run context", before)
+	}
+	before.Execution.Show.ReplyDelayMaxSeconds = 444
+	if showView(t, a, first.view.ID).Execution.Show.ReplyDelayMaxSeconds == 444 || showView(t, a, second.view.ID).Execution.Show.ReplyDelayMaxSeconds != other.Execution.Show.ReplyDelayMaxSeconds {
+		t.Fatal("debug snapshot leaked between sessions")
+	}
+	_ = a.StopShowChat(first.view.ID)
+	_ = a.StopShowChat(second.view.ID)
+	settings.General.ReplyDelayMaxSeconds = 10
+	if err := a.SaveChatSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	if showView(t, a, first.view.ID).Execution.Show.ReplyDelayMaxSeconds != other.Execution.Show.ReplyDelayMaxSeconds {
+		t.Fatal("stopped run history changed with next settings")
+	}
+	startShow(t, a, first.view.ID)
+	defer a.StopShowChat(first.view.ID)
+	current := showView(t, a, first.view.ID)
+	if current.Execution.Show.ReplyDelayMaxSeconds != 10 || current.Execution.Revision <= other.Execution.Revision {
+		t.Fatal("restart did not resolve a fresh snapshot", current)
+	}
+}

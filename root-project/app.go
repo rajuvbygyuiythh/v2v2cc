@@ -26,6 +26,7 @@ import (
 )
 
 type App struct {
+	standardRun      *model.ExecutionSettings
 	diagnostics      homeDiagnosticsFeed
 	showMu           sync.Mutex
 	showSessions     map[string]*showBrowserSession
@@ -149,13 +150,9 @@ func (a *App) GetInitialState() (model.UISnapshot, error) {
 		return model.UISnapshot{}, err
 	}
 
-	generalSettings, err := a.uiStore.LoadGeneralSettings()
-	if err != nil {
-		return model.UISnapshot{}, err
-	}
-
-	showSettings, err := a.uiStore.LoadShowModeSettings()
-	showSettings = showSettings.ThreeTimings()
+	chatSettings, err := a.uiStore.LoadChatSettings()
+	generalSettings := chatSettings.General
+	showSettings := chatSettings.LegacyShow.ThreeTimings()
 	if err != nil {
 		return model.UISnapshot{}, err
 	}
@@ -295,13 +292,22 @@ func (a *App) clearActiveWorkers() {
 }
 
 func (a *App) SaveBrowserSettings(settings model.BrowserSettings) error {
+	var err error
+	settings, err = validateBrowserRun(settings, 1)
+	if err != nil {
+		return err
+	}
 	if strings.TrimSpace(settings.Profile) == "" {
 		settings.Profile = "default"
 	}
 	if err := a.uiStore.SaveBrowserSettings(settings); err != nil {
 		return err
 	}
-	a.log("info", fmt.Sprintf("Browser settings saved. Backend=%s Profile=%s", settings.Backend, settings.Profile))
+	if settings.LiveChat {
+		a.log("info", "Show launch preset accepted; Standard browser defaults preserved.")
+	} else {
+		a.log("info", fmt.Sprintf("Browser settings saved. Backend=%s Profile=%s", settings.Backend, settings.Profile))
+	}
 	return nil
 }
 
@@ -336,6 +342,7 @@ func validateBrowserRun(settings model.BrowserSettings, count int) (model.Browse
 	if !supported {
 		return settings, fmt.Errorf("unsupported browser backend: %q", settings.Backend)
 	}
+	settings.LiveChat = false // Never trust a stale/client-provided execution flag.
 	// Show Mode is a visible Rod launch preset, not a third browser driver.
 	// Normalize before persistence/dispatch so saved sessions use a real backend.
 	if settings.Backend == "show_mode" {
@@ -477,34 +484,23 @@ func (a *App) SaveShowModeSettings(settings model.ShowModeSettings) error {
 func (a *App) SaveGeneralSettings(settings model.GeneralSettings) error {
 	a.showMu.Lock()
 	defer a.showMu.Unlock()
-	unified, err := a.uiStore.ChatSettingsUnified()
-	if err != nil {
+	if err := a.chatSettingsIdleLocked(); err != nil {
 		return err
 	}
-	if unified {
-		if err := a.chatSettingsIdleLocked(); err != nil {
-			return err
-		}
+	if err := uistore.ValidateChatSettings(settings); err != nil {
+		return err
 	}
-	// Freeze legacy migration before accepting a standard-worker-only update.
+	// Preserve the pre-unification Show candidate before a legacy Standard save.
 	if _, err := a.uiStore.LoadShowModeSettings(); err != nil {
 		return err
 	}
-	for _, pair := range [][2]int{{settings.PollMinSeconds, settings.PollMaxSeconds}, {settings.ActionMinSeconds, settings.ActionMaxSeconds}, {settings.MatchReplyTimeoutMinSeconds, settings.MatchReplyTimeoutMaxSeconds}, {settings.MatchCloseWaitMinSeconds, settings.MatchCloseWaitMaxSeconds}, {settings.ReplyDelayMinSeconds, settings.ReplyDelayMaxSeconds}} {
-		if pair[0] < 0 || pair[1] < pair[0] || pair[1] > 86400 {
-			return fmt.Errorf("invalid timing range: min must not exceed max (maximum 86400 seconds)")
-		}
-	}
-
 	if err := a.uiStore.SaveGeneralSettings(settings); err != nil {
 		return err
 	}
-	if unified {
-		if a.showRevision == 0 {
-			a.showRevision = 1
-		}
-		a.showRevision++
+	if a.showRevision == 0 {
+		a.showRevision = 1
 	}
+	a.showRevision++
 	a.log("info", fmt.Sprintf(
 		"Timing settings saved. Poll=%ds-%ds Action=%ds-%ds",
 		settings.PollMinSeconds,
@@ -672,6 +668,7 @@ func (a *App) StartBot() error {
 	a.runID++
 	runID := a.runID
 	a.running = true
+	a.standardRun = nil
 	a.botCancel = cancel
 	a.mu.Unlock()
 	a.showMu.Unlock()
@@ -828,11 +825,23 @@ func (a *App) buildBotConfigs() ([]bot.Config, error) {
 		return nil, err
 	}
 
-	generalSettings, err := a.uiStore.LoadGeneralSettings()
+	a.showMu.Lock()
+	execution, err := a.resolveExecutionSettings(model.ModeStandard)
+	a.showMu.Unlock()
+	execution.Driver = browserSettings.Backend
+	generalSettings := model.GeneralSettings{}
+	if execution.Standard != nil {
+		generalSettings = *execution.Standard
+	}
 	if err != nil {
 		return nil, err
 	}
 
+	execution.Purpose = "Standard workers; frozen running snapshot"
+	a.mu.Lock()
+	snapshot := execution
+	a.standardRun = &snapshot
+	a.mu.Unlock()
 	proxyEntries, err := a.loadProxyEntries()
 	if err != nil {
 		return nil, err
@@ -1233,4 +1242,25 @@ func (a *App) GetLiveChatSnapshot(sessionID string) homeChatSnapshot {
 func (a *App) GetChatSettings() (model.ChatSettings, error) { return a.getChatSettings() }
 func (a *App) SaveChatSettings(settings model.ChatSettings) error {
 	return a.saveChatSettings(settings)
+}
+
+func (a *App) GetExecutionSettings(mode string) (model.ExecutionSettings, error) {
+	a.showMu.Lock()
+	defer a.showMu.Unlock()
+	if mode == model.ModeStandard {
+		a.mu.Lock()
+		running := a.running
+		saved := a.standardRun
+		if running && saved != nil {
+			copy := *saved
+			if saved.Standard != nil {
+				g := *saved.Standard
+				copy.Standard = &g
+			}
+			a.mu.Unlock()
+			return copy, nil
+		}
+		a.mu.Unlock()
+	}
+	return a.resolveExecutionSettings(mode)
 }

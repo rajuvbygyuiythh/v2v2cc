@@ -64,6 +64,7 @@ func (s *Store) LoadBrowserSettings() (model.BrowserSettings, error) {
 	if settings.Backend != "rod" && settings.Backend != "chromedp" {
 		settings.Backend = "rod"
 	}
+	settings.LiveChat = false // A persisted launch flag never selects the worker engine.
 	return settings, nil
 }
 
@@ -74,6 +75,11 @@ func (s *Store) SaveBrowserSettings(settings model.BrowserSettings) error {
 	if settings.Backend != "rod" && settings.Backend != "chromedp" {
 		settings.Backend = "rod"
 	}
+	if settings.LiveChat {
+		// Show is a transient visible launch preset, never worker defaults.
+		return nil
+	}
+	settings.LiveChat = false
 	return s.saveJSON(keyBrowser, settings)
 }
 
@@ -154,6 +160,12 @@ func (s *Store) SaveProxySettings(settings model.ProxySettings) error {
 }
 
 func (s *Store) LoadGeneralSettings() (model.GeneralSettings, error) {
+	var canonical model.GeneralSettings
+	if ok, err := s.loadJSON(keyChatCanonical, &canonical); err != nil {
+		return canonical, err
+	} else if ok {
+		return canonical, ValidateChatSettings(canonical)
+	}
 	settings := model.DefaultGeneralSettings()
 	ok, err := s.loadJSON(keyGeneral, &settings)
 	if err != nil || !ok {
@@ -216,16 +228,18 @@ func (s *Store) SaveGeneralSettings(settings model.GeneralSettings) error {
 	if settings.ReplyDelayMaxSeconds < settings.ReplyDelayMinSeconds {
 		settings.ReplyDelayMaxSeconds = settings.ReplyDelayMinSeconds
 	}
+	if err := ValidateChatSettings(settings); err != nil {
+		return err
+	}
+	if err := s.migrateCanonicalUnlocked(); err != nil {
+		return err
+	}
 	unified, err := s.chatUnifiedUnlocked()
 	if err != nil {
 		return err
 	}
 	if unified {
-		show, err := s.loadShowModeUnlocked()
-		if err != nil {
-			return err
-		}
-		return s.saveChatPairUnlocked(settings, show.AutoSkip)
+		return s.saveChatPairUnlocked(settings, true)
 	}
 	return s.saveJSON(keyGeneral, settings)
 }

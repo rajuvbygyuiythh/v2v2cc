@@ -274,6 +274,8 @@ export namespace main {
 
 export namespace model {
   export class ChatSettings {
+    edit_mode?:string;
+    source?:string;
     general:GeneralSettings;
     show_auto_skip:boolean;
     unified:boolean;
@@ -282,9 +284,17 @@ export namespace model {
     constructor(source:any={}) {
       if(typeof source==='string')source=JSON.parse(source);
       this.general=new GeneralSettings(source.general);
+      this.edit_mode=source.edit_mode;this.source=source.source;
       this.show_auto_skip=source.show_auto_skip;
       this.unified=source.unified;
       this.legacy_show=new ShowModeSettings(source.legacy_show);
     }
   }
+}
+
+export namespace model {
+ export interface ExecutionSettings {
+  mode:string;driver:string;purpose:string;source:string;revision:number;
+  standard?:GeneralSettings;show?:ShowModeSettings;
+ }
 }

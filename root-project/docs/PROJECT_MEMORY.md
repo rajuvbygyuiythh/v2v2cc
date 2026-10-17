@@ -9,10 +9,10 @@ after every meaningful change** (newest last). Never rewrite old entries.
 <!-- AUTO:BEGIN -->
 _Auto status 2026-10-17. Do not edit this block by hand._
 
-- Source fingerprint: `b3f1870262e5b4bd…`
+- Source fingerprint: `cee7372971627c59…`
 - Browser options: `rod`, `chromedp`, `show_mode`
 - Capture tool: v1.2.1
-- Last verification: no report found yet (`npm run verify`)
+- Last verification: **BLOCKED** (PASS 5, FAIL 0, BLOCKED 8) — BLOCKED is not PASS; see `verification-output/report.json`
 <!-- AUTO:END -->
 
 ## Decision log
@@ -347,3 +347,27 @@ license, proxy or dependency changes.
 - 2026-10-18 — Owner authorized publishing the three-timing Show fix. Preparing
   root-project-three-timings-UNVERIFIED.zip with current source and verification
   evidence; native Windows/live-account acceptance remains NOT_RUN.
+
+- 2026-10-18 — Owner approved mode-aware cleanup (Think → Scope → Edit → Test →
+  Provide). Added a single canonical v2 chat-settings record, consistent-v1
+  migration and explicit conflict review; compatibility setters cannot silently
+  resolve divergent shared records. Standard and Show resolve explicit modes at
+  Start with detached frozen snapshots. Rod/ChromeDP stale LiveChat flags are
+  cleared; Show's transient visible Rod launch no longer overwrites Standard
+  driver/profile/headless defaults. One shared three-timing form remains;
+  Standard-only first-policy/poll/action controls are contextual, with explicit
+  edit_mode and unsaved Standard draft protection. Omitted edit_mode retains the
+  prior common API polling/action contract while preserving first policy;
+  explicit Show edits cannot rewrite Standard extras. Read-only details expose
+  mode/driver/source/revision without credentials or message contents. Existing
+  timer/send safety, driver/auth/proxy/license/AI/worker logic and dependency pins
+  remain unchanged. Node 90/90 PASS; pinned internal race/vet PASS; root Linux
+  race/vet PASS with external error-only WMI shim (not production replacement).
+  Production-pin Windows default cross-build and root test compilation PASS;
+  production-tag Wails build BLOCKED by unavailable sourcehut go-toast dependency.
+  Native Windows execution/live accounts NOT_RUN. No new push or ZIP authorized.
+  Scope, migration/downgrade cautions and evidence: MODE_AWARE_SETTINGS.md.
+- 2026-10-18 — Owner authorized publishing the mode-aware settings changes and
+  a direct source download. Package as root-project-mode-aware-settings-UNVERIFIED.zip
+  with the current source manifest and verification evidence. The full release
+  gate remains BLOCKED; native Windows/live-account acceptance is NOT_RUN.

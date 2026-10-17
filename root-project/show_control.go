@@ -19,15 +19,16 @@ import (
 )
 
 type ShowBrowserView struct {
-	BlockedBy   string                  `json:"blocked_by,omitempty"`
-	ID          string                  `json:"id"`
-	Profile     string                  `json:"profile"`
-	Account     string                  `json:"account"`
-	Status      string                  `json:"status"`
-	Detail      string                  `json:"detail"`
-	Decision    string                  `json:"decision"`
-	MessageMode string                  `json:"message_mode"`
-	Settings    *model.ShowModeSettings `json:"settings,omitempty"`
+	Execution   *model.ExecutionSettings `json:"execution,omitempty"`
+	BlockedBy   string                   `json:"blocked_by,omitempty"`
+	ID          string                   `json:"id"`
+	Profile     string                   `json:"profile"`
+	Account     string                   `json:"account"`
+	Status      string                   `json:"status"`
+	Detail      string                   `json:"detail"`
+	Decision    string                   `json:"decision"`
+	MessageMode string                   `json:"message_mode"`
+	Settings    *model.ShowModeSettings  `json:"settings,omitempty"`
 }
 type ShowControlState struct {
 	Revision uint64                 `json:"revision"`
@@ -50,8 +51,11 @@ type showBrowserSession struct {
 func (a *App) showControlState() (ShowControlState, error) {
 	a.showMu.Lock()
 	defer a.showMu.Unlock()
-	settings, err := a.uiStore.LoadShowModeSettings()
-	settings = settings.ThreeTimings()
+	execution, err := a.resolveExecutionSettings(model.ModeShow)
+	settings := model.ShowModeSettings{}
+	if execution.Show != nil {
+		settings = *execution.Show
+	}
 	if err != nil {
 		return ShowControlState{}, err
 	}
@@ -68,6 +72,14 @@ func (a *App) showControlState() (ShowControlState, error) {
 			copy := *view.Settings
 			view.Settings = &copy
 		}
+		if view.Execution != nil {
+			copy := *view.Execution
+			if copy.Show != nil {
+				show := *copy.Show
+				copy.Show = &show
+			}
+			view.Execution = &copy
+		}
 		result.Browsers = append(result.Browsers, view)
 		result.Active = result.Active || s.chatDone != nil
 	}
@@ -78,14 +90,8 @@ func (a *App) saveShowSettings(settings model.ShowModeSettings) error {
 	settings = settings.ThreeTimings()
 	a.showMu.Lock()
 	defer a.showMu.Unlock()
-	unified, err := a.uiStore.ChatSettingsUnified()
-	if err != nil {
+	if err := a.chatSettingsIdleLocked(); err != nil {
 		return err
-	}
-	if unified {
-		if err := a.chatSettingsIdleLocked(); err != nil {
-			return err
-		}
 	}
 	for _, s := range a.showSessions {
 		if s.chatDone != nil {
@@ -241,8 +247,11 @@ func (a *App) startShowChat(id string, revision uint64) error {
 		a.showMu.Unlock()
 		return fmt.Errorf("saved settings changed; refresh and review before starting")
 	}
-	settings, err := a.uiStore.LoadShowModeSettings()
-	settings = settings.ThreeTimings()
+	execution, err := a.resolveExecutionSettings(model.ModeShow)
+	settings := model.ShowModeSettings{}
+	if execution.Show != nil {
+		settings = *execution.Show
+	}
 	if err == nil {
 		err = uistore.ValidateShowModeSettings(settings)
 	}
@@ -270,6 +279,9 @@ func (a *App) startShowChat(id string, revision uint64) error {
 	settings.FirstMessage = settings.FirstMessage.Effective()
 	copy := settings
 	s.view.Settings = &copy
+	execution.Show = &copy
+	execution.Purpose = "visible DOM chat; frozen running snapshot"
+	s.view.Execution = &execution
 	s.view.MessageMode = messages.EffectiveChatMode()
 	s.view.Decision = ""
 	s.chatDiagnostic = a.diagnostics.start(id, s.view.Profile, s.view.Account, "Chat run", s.view.MessageMode, a.showRevision, &copy)

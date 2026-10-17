@@ -88,3 +88,5 @@ export function ClearHomeDiagnostics(arg1) {
 
 export function GetChatSettings() { return window['go']['main']['App']['GetChatSettings'](); }
 export function SaveChatSettings(arg1) { return window['go']['main']['App']['SaveChatSettings'](arg1); }
+
+export function GetExecutionSettings(arg1) {return window['go']['main']['App']['GetExecutionSettings'](arg1);}

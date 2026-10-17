@@ -30,6 +30,15 @@ func (s *Store) LoadShowModeSettings() (model.ShowModeSettings, error) {
 	return s.loadShowModeUnlocked()
 }
 func (s *Store) loadShowModeUnlocked() (model.ShowModeSettings, error) {
+	var canonical model.GeneralSettings
+	if ok, err := s.loadJSON(keyChatCanonical, &canonical); err != nil {
+		return model.ShowModeSettings{}, err
+	} else if ok {
+		if err := ValidateChatSettings(canonical); err != nil {
+			return model.ShowModeSettings{}, err
+		}
+		return sharedShow(canonical, true), nil
+	}
 	var result model.ShowModeSettings
 	ok, err := s.loadJSON(keyShowMode, &result)
 	if err != nil || ok {
@@ -56,6 +65,9 @@ func (s *Store) SaveShowModeSettings(settings model.ShowModeSettings) error {
 	s.showModeMu.Lock()
 	defer s.showModeMu.Unlock()
 	if err := ValidateShowModeSettings(settings); err != nil {
+		return err
+	}
+	if err := s.migrateCanonicalUnlocked(); err != nil {
 		return err
 	}
 	unified, err := s.chatUnifiedUnlocked()
