@@ -187,6 +187,9 @@ func (s *Store) LoadGeneralSettings() (model.GeneralSettings, error) {
 }
 
 func (s *Store) SaveGeneralSettings(settings model.GeneralSettings) error {
+	if err := settings.FirstMessage.Validate(); err != nil {
+		return err
+	}
 	if settings.PollMinSeconds <= 0 {
 		settings.PollMinSeconds = model.DefaultGeneralSettings().PollMinSeconds
 	}

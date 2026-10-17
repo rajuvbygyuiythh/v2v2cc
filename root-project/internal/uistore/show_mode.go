@@ -9,6 +9,9 @@ import (
 const keyShowMode = "settings/show_mode/v1"
 
 func ValidateShowModeSettings(s model.ShowModeSettings) error {
+	if err := s.FirstMessage.Validate(); err != nil {
+		return err
+	}
 	for _, pair := range [][2]int{{s.ReplyDelayMinSeconds, s.ReplyDelayMaxSeconds}, {s.NoReplyMinSeconds, s.NoReplyMaxSeconds}, {s.NextChatMinSeconds, s.NextChatMaxSeconds}} {
 		if pair[0] < 0 || pair[1] < pair[0] || pair[1] > 86400 {
 			return fmt.Errorf("timing ranges must satisfy 0 <= min <= max <= 86400 seconds")

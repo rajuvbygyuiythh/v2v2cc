@@ -294,6 +294,23 @@
           <h2>Show Mode — Browser Chat</h2>
           <p>Only Browser → 03 Show Mode. Rod / ChromeDP login capture is unaffected. Reply delay does not delay the opening greeting.</p>
           <form id="show-mode-form" class="form-grid two-column">
+            <fieldset class="first-message-settings">
+              <legend>Who sends the first message?</legend>
+              <label><span>First-message mode</span><select id="show-first-mode">
+                <option value="bot">Bot first</option><option value="user">User first</option><option value="random">Random</option>
+              </select></label>
+              <div id="show-first-percent-row" hidden><label><span>Bot first chance (%)</span><input id="show-first-percent" type="number" min="0" max="100" step="1" value="70" required></label>
+                <p>Probability per new conversation, not a fixed quota. 0% = user first; 100% = bot first.</p></div>
+              <div id="show-first-wait-row" hidden>
+                <label><span>Wait for the user's first message</span><select id="show-first-wait"><option value="unlimited">Wait indefinitely</option><option value="skip">Skip after timeout</option></select></label>
+                <div id="show-first-timeout-row" class="first-timeout-range" hidden>
+                  <label><span>First-message timeout min seconds</span><input id="show-first-min" type="number" min="1" max="86400" step="1" value="30" required></label>
+                  <label><span>First-message timeout max seconds</span><input id="show-first-max" type="number" min="1" max="86400" step="1" value="60" required></label>
+                </div>
+                <p>Separate from the no-reply timeout after a bot send. On timeout, skip the current chat and use the next-chat wait.</p>
+              </div>
+              <p>If the partner has already written, reply to that message instead of adding an unsolicited opener. Save and restart this mode to apply.</p>
+            </fieldset>
             <label><span>Reply delay min seconds</span><input id="reply-delay-min" type="number" min="0" max="86400" required></label>
             <label><span>Reply delay max seconds</span><input id="reply-delay-max" type="number" min="0" max="86400" required></label>
             <label class="checkbox-row"><input id="show-auto-skip" type="checkbox"><span>No-reply auto skip</span></label>
@@ -310,6 +327,23 @@
         <h2>Standard Bot — Start Bot</h2>
         <p>Only Home → Start Bot workers. These values do not control Show Mode.</p>
         <form id="general-form" class="form-grid two-column">
+          <fieldset class="first-message-settings">
+              <legend>Who sends the first message?</legend>
+              <label><span>First-message mode</span><select id="standard-first-mode">
+                <option value="bot">Bot first</option><option value="user">User first</option><option value="random">Random</option>
+              </select></label>
+              <div id="standard-first-percent-row" hidden><label><span>Bot first chance (%)</span><input id="standard-first-percent" type="number" min="0" max="100" step="1" value="70" required></label>
+                <p>Probability per new conversation, not a fixed quota. 0% = user first; 100% = bot first.</p></div>
+              <div id="standard-first-wait-row" hidden>
+                <label><span>Wait for the user's first message</span><select id="standard-first-wait"><option value="unlimited">Wait indefinitely</option><option value="skip">Skip after timeout</option></select></label>
+                <div id="standard-first-timeout-row" class="first-timeout-range" hidden>
+                  <label><span>First-message timeout min seconds</span><input id="standard-first-min" type="number" min="1" max="86400" step="1" value="30" required></label>
+                  <label><span>First-message timeout max seconds</span><input id="standard-first-max" type="number" min="1" max="86400" step="1" value="60" required></label>
+                </div>
+                <p>Separate from the no-reply timeout after a bot send. Timeout skips idle matches. DMs are not deleted or disconnected; idle DMs are left waiting for an incoming message.</p>
+              </div>
+              <p>If the partner has already written, reply to that message instead of adding an unsolicited opener. Save and restart this mode to apply.</p>
+            </fieldset>
           <label>
             <span>Poll min seconds</span>
             <input type="number" id="poll-min" min="1">

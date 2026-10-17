@@ -55,27 +55,29 @@ type ProxySettings struct {
 }
 
 type GeneralSettings struct {
-	PollMinSeconds              int `json:"poll_min_seconds"`
-	PollMaxSeconds              int `json:"poll_max_seconds"`
-	ActionMinSeconds            int `json:"action_min_seconds"`
-	ActionMaxSeconds            int `json:"action_max_seconds"`
-	MatchReplyTimeoutMinSeconds int `json:"match_reply_timeout_min_seconds"`
-	MatchReplyTimeoutMaxSeconds int `json:"match_reply_timeout_max_seconds"`
-	MatchCloseWaitMinSeconds    int `json:"match_close_wait_min_seconds"`
-	MatchCloseWaitMaxSeconds    int `json:"match_close_wait_max_seconds"`
-	ReplyDelayMinSeconds        int `json:"reply_delay_min_seconds"`
-	ReplyDelayMaxSeconds        int `json:"reply_delay_max_seconds"`
+	FirstMessage                FirstMessageSettings `json:"first_message"`
+	PollMinSeconds              int                  `json:"poll_min_seconds"`
+	PollMaxSeconds              int                  `json:"poll_max_seconds"`
+	ActionMinSeconds            int                  `json:"action_min_seconds"`
+	ActionMaxSeconds            int                  `json:"action_max_seconds"`
+	MatchReplyTimeoutMinSeconds int                  `json:"match_reply_timeout_min_seconds"`
+	MatchReplyTimeoutMaxSeconds int                  `json:"match_reply_timeout_max_seconds"`
+	MatchCloseWaitMinSeconds    int                  `json:"match_close_wait_min_seconds"`
+	MatchCloseWaitMaxSeconds    int                  `json:"match_close_wait_max_seconds"`
+	ReplyDelayMinSeconds        int                  `json:"reply_delay_min_seconds"`
+	ReplyDelayMaxSeconds        int                  `json:"reply_delay_max_seconds"`
 }
 
 // ShowModeSettings is independent of the standard worker timing settings.
 type ShowModeSettings struct {
-	ReplyDelayMinSeconds int  `json:"reply_delay_min_seconds"`
-	ReplyDelayMaxSeconds int  `json:"reply_delay_max_seconds"`
-	AutoSkip             bool `json:"auto_skip"`
-	NoReplyMinSeconds    int  `json:"no_reply_min_seconds"`
-	NoReplyMaxSeconds    int  `json:"no_reply_max_seconds"`
-	NextChatMinSeconds   int  `json:"next_chat_min_seconds"`
-	NextChatMaxSeconds   int  `json:"next_chat_max_seconds"`
+	FirstMessage         FirstMessageSettings `json:"first_message"`
+	ReplyDelayMinSeconds int                  `json:"reply_delay_min_seconds"`
+	ReplyDelayMaxSeconds int                  `json:"reply_delay_max_seconds"`
+	AutoSkip             bool                 `json:"auto_skip"`
+	NoReplyMinSeconds    int                  `json:"no_reply_min_seconds"`
+	NoReplyMaxSeconds    int                  `json:"no_reply_max_seconds"`
+	NextChatMinSeconds   int                  `json:"next_chat_min_seconds"`
+	NextChatMaxSeconds   int                  `json:"next_chat_max_seconds"`
 }
 
 type HomeStats struct {

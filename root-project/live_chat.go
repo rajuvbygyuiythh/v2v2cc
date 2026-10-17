@@ -66,6 +66,9 @@ func (r *sequenceLiveResponder) Start() []string {
 }
 
 func (r *sequenceLiveResponder) Reply(string) ([]string, bool) {
+	if r.lines == nil {
+		return r.Start(), false
+	}
 	if r.next < len(r.lines) {
 		line := r.lines[r.next]
 		r.next++
@@ -165,6 +168,9 @@ func (a *App) newLiveResponder() (liveResponder, string, error) {
 // DOM runner: single-consumer queue over the observer's retained rows. Unknown
 // authors are not guessed; uncertain sends pause until a different conversation.
 type liveRunner struct {
+	firstMessage             model.FirstMessageSettings
+	firstWaiting             bool
+	firstDeadline            time.Time
 	dom                      browser.DOMChatBackend
 	prefix                   string
 	logf                     func(string, string)
@@ -211,6 +217,7 @@ func (a *App) runLiveChat(ctx context.Context, backend browser.Backend, _ model.
 	observed, stopTranscript := a.startHomeChatObserver(ctx, dom, profileName, index, total)
 	defer stopTranscript()
 	r := &liveRunner{
+		firstMessage:  showSettings.FirstMessage.Effective(),
 		dom:           observed,
 		prefix:        prefix,
 		logf:          a.log,
@@ -274,6 +281,8 @@ func (r *liveRunner) run(ctx context.Context) {
 }
 
 func (r *liveRunner) reset(c browser.DOMControls) {
+	r.firstWaiting = false
+	r.firstDeadline = time.Time{}
 	r.timeoutRotating = false
 	r.replyDeadline = time.Time{}
 	r.conversation = c.Conversation
@@ -354,10 +363,10 @@ func (r *liveRunner) step(ctx context.Context) bool {
 		return false
 	}
 	if r.responder == nil {
-		// Only the first snapshot is history. Rows arriving during opener/send remain
-		// in the browser queue and are processed on the next cycle.
+		// Seed own/unknown history only. An already-present partner message
+		// wins over an unsolicited opener and is processed through Reply.
 		for _, row := range snapshot.Messages {
-			if row.ID != "" {
+			if row.ID != "" && !strings.EqualFold(row.Author, c.Partner) {
 				r.seenIDs[row.ID] = true
 			}
 		}
@@ -369,7 +378,43 @@ func (r *liveRunner) step(ctx context.Context) bool {
 		}
 		r.responder = responder
 		r.logf("activity", fmt.Sprintf("%s CHAT STARTED | mode=%s history=%d observer=%t", r.prefix, mode, len(r.seenIDs), c.ObserverReady))
-		return r.sendLines(ctx, responder.Start())
+		hasIncoming := false
+		for _, row := range snapshot.Messages {
+			if row.ID != "" && strings.EqualFold(row.Author, c.Partner) && strings.TrimSpace(row.Text) != "" {
+				hasIncoming = true
+				break
+			}
+		}
+		botFirst := r.firstMessage.ChooseBotFirst(r.replyDelayRNG)
+		if botFirst && !hasIncoming {
+			// Recheck just before opening: incoming may have arrived while loading
+			// the responder. There is no atomic browser/server ordering guarantee.
+			fresh, err := r.dom.ReadDOMSnapshot(ctx)
+			if err != nil {
+				r.paused = true
+				r.logStepError("FIRST TURN RECHECK FAILED | " + err.Error())
+				return r.pageGone(err)
+			}
+			if fresh.Controls.Conversation != r.conversation {
+				return false
+			}
+			snapshot.Messages = fresh.Messages
+			for _, row := range snapshot.Messages {
+				if row.ID != "" && strings.EqualFold(row.Author, c.Partner) && strings.TrimSpace(row.Text) != "" {
+					hasIncoming = true
+					break
+				}
+			}
+			if !hasIncoming {
+				return r.sendLines(ctx, responder.Start())
+			}
+		}
+		r.firstWaiting = true
+		policy := r.firstMessage.Effective()
+		if policy.WaitTimeout {
+			r.firstDeadline = time.Now().Add(policy.WaitDuration(r.replyDelayRNG))
+		}
+		// Fall through: a partner already present must receive a reply, not a second opener.
 	}
 	for _, row := range snapshot.Messages {
 		if row.ID == "" || r.seenIDs[row.ID] || r.queuedIDs[row.ID] || strings.TrimSpace(row.Text) == "" {
@@ -383,11 +428,18 @@ func (r *liveRunner) step(ctx context.Context) bool {
 			r.logStepError("AUTHOR UNKNOWN | unread row retained; no text-only echo guessing")
 			continue
 		}
+		r.firstWaiting = false
+		r.firstDeadline = time.Time{}
 		r.replyDeadline = time.Time{}
 		r.queue = append(r.queue, row)
 		r.queuedIDs[row.ID] = true
 	}
 	if len(r.queue) == 0 {
+		if r.firstWaiting && !r.firstDeadline.IsZero() && !time.Now().Before(r.firstDeadline) {
+			r.timeoutRotating = true
+			r.rotating = true
+			return r.rotate(ctx)
+		}
 		if r.autoSkip && !r.replyDeadline.IsZero() && !time.Now().Before(r.replyDeadline) {
 			r.replyDeadline = time.Time{}
 			r.timeoutRotating = true
@@ -495,6 +547,8 @@ func (r *liveRunner) rotate(ctx context.Context) bool {
 	if r.timeoutRotating {
 		for _, row := range s.Messages {
 			if row.ID != "" && !r.seenIDs[row.ID] && strings.EqualFold(row.Author, s.Controls.Partner) && strings.TrimSpace(row.Text) != "" {
+				r.firstWaiting = false
+				r.firstDeadline = time.Time{}
 				r.rotating = false
 				r.timeoutRotating = false
 				return false

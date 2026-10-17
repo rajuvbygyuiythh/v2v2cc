@@ -835,6 +835,7 @@ func (a *App) buildBotConfigs() ([]bot.Config, error) {
 			cfg.AvailableSequences = [][]string{messageSettings.SequenceLines()}
 		}
 		cfg.MessageUsernames = messageSettings.UsernameLines()
+		cfg.FirstMessage = generalSettings.FirstMessage.Effective()
 		cfg.MatchWhenIdle = true
 		cfg.PollMin = time.Duration(generalSettings.PollMinSeconds) * time.Second
 		cfg.PollMax = time.Duration(generalSettings.PollMaxSeconds) * time.Second

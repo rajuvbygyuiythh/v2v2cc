@@ -595,3 +595,10 @@ textarea {
 .settings-tabs [aria-pressed="true"] { border-color:var(--accent, #60a5fa); background:rgba(96,165,250,.15); }
 #settings-show > p, #settings-standard > p { color:var(--muted); margin-bottom:20px; }
 #settings-show [role="status"], #standard-save-status { color:var(--muted); }
+
+.first-message-settings { grid-column:1 / -1; border:1px solid var(--border, #394235); border-radius:10px; padding:18px; display:grid; gap:14px; min-width:0; }
+.first-message-settings legend { padding:0 8px; font-weight:600; }
+.first-message-settings p { color:var(--muted); font-size:.9rem; margin:8px 0 0; }
+.first-timeout-range { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-top:14px; }
+.first-message-settings [hidden] { display:none !important; }
+@media(max-width:640px) { .first-timeout-range { grid-template-columns:1fr; } }

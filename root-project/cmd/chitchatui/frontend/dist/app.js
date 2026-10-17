@@ -252,6 +252,8 @@ function fillForms(snapshot) {
   document.getElementById("reply-delay-max").value = (snapshot.show_mode || {}).reply_delay_max_seconds || 0;
   document.getElementById("worker-reply-delay-min").value = snapshot.general.reply_delay_min_seconds || 0;
   document.getElementById("worker-reply-delay-max").value = snapshot.general.reply_delay_max_seconds || 0;
+  fillFirstMessageSettings("standard", snapshot.general.first_message);
+  fillFirstMessageSettings("show", (snapshot.show_mode || {}).first_message);
   const show = snapshot.show_mode || {};
   for (const id of ["show-timeout-min", "show-timeout-max"]) document.getElementById(id).disabled = !show.auto_skip;
   document.getElementById("show-auto-skip").checked = !!show.auto_skip;
@@ -478,6 +480,7 @@ function bindForms() {
     try {
     validateTimingPairs([["poll-min","poll-max"],["action-min","action-max"],["match-reply-timeout-min","match-reply-timeout-max"],["match-close-wait-min","match-close-wait-max"],["worker-reply-delay-min","worker-reply-delay-max"]]);
     await invoke("SaveGeneralSettings", {
+      first_message: readFirstMessageSettings("standard"),
       reply_delay_min_seconds: Number(document.getElementById("worker-reply-delay-min").value),
       reply_delay_max_seconds: Number(document.getElementById("worker-reply-delay-max").value),
       poll_min_seconds: Number(document.getElementById("poll-min").value),
@@ -622,6 +625,10 @@ function validateTimingPairs(pairs) {
   }
 }
 function bindTimingSettings() {
+  for (const prefix of ["show", "standard"]) {
+    for (const suffix of ["mode", "wait"]) document.getElementById(`${prefix}-first-${suffix}`).addEventListener("change", () => updateFirstMessageControls(prefix));
+    updateFirstMessageControls(prefix);
+  }
   for (const button of document.querySelectorAll("[data-settings-tab]")) {
     button.addEventListener("click", () => {
       const show = button.dataset.settingsTab === "show";
@@ -642,6 +649,7 @@ function bindTimingSettings() {
       const number = id => Number(document.getElementById(id).value);
       if (enabled.checked && number("show-timeout-min") < 1) throw new Error("Auto skip needs a positive timeout.");
       await invoke("SaveShowModeSettings", {
+        first_message: readFirstMessageSettings("show"),
         reply_delay_min_seconds:number("reply-delay-min"), reply_delay_max_seconds:number("reply-delay-max"),
         auto_skip:enabled.checked, no_reply_min_seconds:number("show-timeout-min"), no_reply_max_seconds:number("show-timeout-max"),
         next_chat_min_seconds:number("show-next-min"), next_chat_max_seconds:number("show-next-max")
@@ -649,4 +657,29 @@ function bindTimingSettings() {
       status.textContent = "Saved — close and restart Show Mode to apply. Running conversations are unchanged.";
     } catch (error) { status.textContent = error.message || String(error); }
   });
+}
+
+function updateFirstMessageControls(prefix) {
+  const mode = document.getElementById(`${prefix}-first-mode`).value;
+  const wait = document.getElementById(`${prefix}-first-wait`).value === "skip";
+  document.getElementById(`${prefix}-first-percent-row`).hidden = mode !== "random";
+  document.getElementById(`${prefix}-first-percent`).disabled = mode !== "random";
+  document.getElementById(`${prefix}-first-wait-row`).hidden = mode === "bot";
+  document.getElementById(`${prefix}-first-wait`).disabled = mode === "bot";
+  document.getElementById(`${prefix}-first-timeout-row`).hidden = mode === "bot" || !wait;
+  for (const suffix of ["min", "max"]) document.getElementById(`${prefix}-first-${suffix}`).disabled = mode === "bot" || !wait;
+}
+function fillFirstMessageSettings(prefix, settings) {
+  const first = settings && settings.mode ? settings : {mode:"bot",bot_first_percent:70,wait_timeout:false,wait_min_seconds:30,wait_max_seconds:60};
+  for (const [suffix,value] of [["mode",first.mode],["percent",first.bot_first_percent],["wait",first.wait_timeout ? "skip" : "unlimited"],["min",first.wait_min_seconds],["max",first.wait_max_seconds]]) document.getElementById(`${prefix}-first-${suffix}`).value = value;
+  updateFirstMessageControls(prefix);
+}
+function readFirstMessageSettings(prefix) {
+  const value = suffix => document.getElementById(`${prefix}-first-${suffix}`).value;
+  const result = {mode:value("mode"),bot_first_percent:Number(value("percent")),wait_timeout:value("wait") === "skip",wait_min_seconds:Number(value("min")),wait_max_seconds:Number(value("max"))};
+  if (!["bot","user","random"].includes(result.mode)) throw new Error("Choose a first-message mode.");
+  if (!Number.isInteger(result.bot_first_percent) || result.bot_first_percent < 0 || result.bot_first_percent > 100) throw new Error("Bot first chance must be a whole number from 0 to 100.");
+  validateTimingPairs([[`${prefix}-first-min`,`${prefix}-first-max`]]);
+  if (result.wait_timeout && result.wait_min_seconds < 1) throw new Error("First-message timeout needs a positive minimum.");
+  return result;
 }

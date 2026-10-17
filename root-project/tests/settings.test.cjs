@@ -59,3 +59,43 @@ test('backend failures are visible within the relevant page',async()=>{
  await tick(); assert.match(d.getElementById('show-save-status').textContent,/disk unavailable/);
  dom.window.close();
 });
+
+test('first-message controls reveal only relevant fields and remain independent',()=>{
+ const {dom,w,d}=setup();
+ const change=(id,value)=>{const e=d.getElementById(id);e.value=value;e.dispatchEvent(new w.Event('change'));};
+ assert.equal(d.getElementById('show-first-percent-row').hidden,true);
+ assert.equal(d.getElementById('show-first-wait-row').hidden,true);
+ change('show-first-mode','random');
+ assert.equal(d.getElementById('show-first-percent-row').hidden,false);
+ assert.equal(d.getElementById('show-first-wait-row').hidden,false);
+ assert.equal(d.getElementById('standard-first-mode').value,'bot');
+ change('show-first-wait','skip');assert.equal(d.getElementById('show-first-min').disabled,false);
+ change('show-first-mode','user');assert.equal(d.getElementById('show-first-percent-row').hidden,true);
+ change('show-first-mode','bot');assert.equal(d.getElementById('show-first-min').disabled,true);
+ dom.window.close();
+});
+test('first-message policies save separately and validate probability',async()=>{
+ const {dom,w,d,calls}=setup();
+ d.getElementById('show-first-mode').value='random';d.getElementById('show-first-percent').value=80;
+ d.getElementById('show-first-wait').value='skip';d.getElementById('standard-first-mode').value='user';
+ for(const id of ['show-mode-form','general-form']) d.getElementById(id).dispatchEvent(new w.Event('submit',{cancelable:true}));
+ await tick();
+ assert.equal(calls[0][1].first_message.mode,'random');assert.equal(calls[0][1].first_message.bot_first_percent,80);
+ assert.equal(calls[0][1].first_message.wait_timeout,true);
+ assert.equal(calls[1][1].first_message.mode,'user');assert.equal(calls[1][1].first_message.wait_timeout,false);
+ d.getElementById('show-first-percent').value=101;
+ d.getElementById('show-mode-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
+ assert.equal(calls.length,2);assert.match(d.getElementById('show-save-status').textContent,/0 to 100/);
+ d.getElementById('show-first-percent').value=0;d.getElementById('show-first-min').value=0;
+ d.getElementById('show-mode-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
+ assert.equal(calls.length,2);assert.match(d.getElementById('show-save-status').textContent,/positive minimum/);
+ dom.window.close();
+});
+test('legacy first-message settings remain bot-first with no first-wait timeout',()=>{
+ const {dom,w}=setup();
+ for(const prefix of ['show','standard']) {
+  w.fillFirstMessageSettings(prefix,undefined);const s=w.readFirstMessageSettings(prefix);
+  assert.equal(s.mode,'bot');assert.equal(s.wait_timeout,false);assert.equal(s.bot_first_percent,70);
+ }
+ dom.window.close();
+});

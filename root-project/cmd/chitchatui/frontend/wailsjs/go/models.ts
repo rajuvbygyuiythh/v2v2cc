@@ -32,7 +32,24 @@ export namespace model {
 	        this.headless = source["headless"];
 	    }
 	}
+	export class FirstMessageSettings {
+	    mode: string;
+	    bot_first_percent: number;
+	    wait_timeout: boolean;
+	    wait_min_seconds: number;
+	    wait_max_seconds: number;
+	    static createFrom(source: any = {}) { return new FirstMessageSettings(source); }
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.bot_first_percent = source["bot_first_percent"];
+	        this.wait_timeout = source["wait_timeout"];
+	        this.wait_min_seconds = source["wait_min_seconds"];
+	        this.wait_max_seconds = source["wait_max_seconds"];
+	    }
+	}
 	export class GeneralSettings {
+	    first_message: FirstMessageSettings;
 	    poll_min_seconds: number;
 	    poll_max_seconds: number;
 	    action_min_seconds: number;
@@ -50,6 +67,7 @@ export namespace model {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.first_message = new FirstMessageSettings(source["first_message"] || {});
 	        this.poll_min_seconds = source["poll_min_seconds"];
 	        this.poll_max_seconds = source["poll_max_seconds"];
 	        this.action_min_seconds = source["action_min_seconds"];
@@ -63,6 +81,7 @@ export namespace model {
 	    }
 	}
 	export class ShowModeSettings {
+	    first_message: FirstMessageSettings;
 	    reply_delay_min_seconds: number;
 	    reply_delay_max_seconds: number;
 	    auto_skip: boolean;
@@ -73,6 +92,7 @@ export namespace model {
 	    static createFrom(source: any = {}) { return new ShowModeSettings(source); }
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.first_message = new FirstMessageSettings(source["first_message"] || {});
 	        this.reply_delay_min_seconds = source["reply_delay_min_seconds"];
 	        this.reply_delay_max_seconds = source["reply_delay_max_seconds"];
 	        this.auto_skip = source["auto_skip"];

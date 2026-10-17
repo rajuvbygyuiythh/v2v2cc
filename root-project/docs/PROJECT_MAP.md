@@ -12,31 +12,31 @@ _Auto-generated 2026-10-17 by `scripts/project-map.cjs`. Do not edit this block 
 
 ## Source inventory
 
-- Total source files: **189** (1085.9 KiB, excluding runtime/private data)
+- Total source files: **195** (1130.0 KiB, excluding runtime/private data)
 
 | Area | Files | Size |
 |---|---:|---:|
-| `internal/` | 90 | 447.3 KiB |
+| `internal/` | 95 | 471.0 KiB |
 | `capture/` | 25 | 114.3 KiB |
-| `(root files)` | 24 | 170.2 KiB |
-| `docs/` | 13 | 77.6 KiB |
+| `(root files)` | 24 | 174.9 KiB |
+| `docs/` | 14 | 83.0 KiB |
 | `apitest/` | 12 | 99.3 KiB |
-| `cmd/` | 9 | 90.0 KiB |
-| `scripts/` | 8 | 39.8 KiB |
-| `tests/` | 8 | 47.5 KiB |
+| `cmd/` | 9 | 97.4 KiB |
+| `scripts/` | 8 | 40.1 KiB |
+| `tests/` | 8 | 50.1 KiB |
 
 ## Internal Go packages
 
 - `internal/api/` — 1 Go file(s)
 - `internal/applog/` — 4 Go file(s)
-- `internal/bot/` — 21 Go file(s)
+- `internal/bot/` — 23 Go file(s)
 - `internal/browser/` — 9 Go file(s)
 - `internal/license/` — 1 Go file(s)
-- `internal/model/` — 2 Go file(s)
+- `internal/model/` — 4 Go file(s)
 - `internal/proxy/` — 7 Go file(s)
 - `internal/runtimeassets/` — 2 Go file(s)
 - `internal/store/` — 1 Go file(s)
-- `internal/uistore/` — 4 Go file(s)
+- `internal/uistore/` — 5 Go file(s)
 - `internal/workerplan/` — 2 Go file(s)
 
 ## Browser options (Dashboard → Browser)
@@ -62,6 +62,7 @@ _Auto-generated 2026-10-17 by `scripts/project-map.cjs`. Do not edit this block 
 - `docs/CHITCHAT_PROTOCOL.md`
 - `docs/DEBUG_CLEANUP.md`
 - `docs/FILE_LOGGING.md`
+- `docs/FIRST_MESSAGE_SETTINGS.md`
 - `docs/HOME_CHAT.md`
 - `docs/PROJECT_MAP.md`
 - `docs/PROJECT_MEMORY.md`
@@ -91,3 +92,11 @@ _Auto-generated 2026-10-17 by `scripts/project-map.cjs`. Do not edit this block 
 - `internal/uistore/show_mode.go`: dedicated key, validation and migration.
 - `live_chat.go`: Show Mode timing snapshot, opt-in timeout and next-chat wait.
 - `docs/SETTINGS_PROFILES.md`: semantics, limits and acceptance checklist.
+
+## First-sender policy (2026-10-17)
+
+- `internal/model/first_message.go`: independently saved policy + stored decision.
+- `internal/bot/first_message.go`: persisted worker choice and first-match gate.
+- Show Mode first-wait state is in `live_chat.go`; sequence/EVA engines remain
+  unchanged except the sequence responder's lazy first-line initialization.
+- `docs/FIRST_MESSAGE_SETTINGS.md`: scope, DM distinction, evidence and limits.

@@ -9,7 +9,7 @@ after every meaningful change** (newest last). Never rewrite old entries.
 <!-- AUTO:BEGIN -->
 _Auto status 2026-10-17. Do not edit this block by hand._
 
-- Source fingerprint: `d7984f00b332e465…`
+- Source fingerprint: `2c8219aa5de5d020…`
 - Browser options: `rod`, `chromedp`, `show_mode`
 - Capture tool: v1.2.1
 - Last verification: **BLOCKED** (PASS 3, FAIL 0, BLOCKED 10) — BLOCKED is not PASS; see `verification-output/report.json`
@@ -252,3 +252,25 @@ license, proxy or dependency changes.
   AI/chat engines, browser drivers, login and proxy untouched. npm tests: 69
   PASS. Added Go store/App/runner regressions; NOT_RUN without Go toolchain.
   Native Windows and live-site acceptance NOT_RUN. See SETTINGS_PROFILES.md.
+
+- 2026-10-17 — Owner approved scoped first-sender controls in BOTH timing
+  profiles (Bot/User/Random + bot-first percentage and separate first-user wait).
+  Added independent nested policy values, validation, conditional UI and legacy
+  bot-first defaults. Show Mode waits without consuming sequence line 1;
+  already-present partner input takes priority and EVA sees it in NEW stage.
+  Worker first decisions/deadlines persist per account/conversation; a targeted
+  first-match gate bridges initial input into existing engines and dedupes the
+  corresponding realtime event. DM poll/realtime paths suppress idle user-first
+  openers; timeout never deletes DMs. No driver/login/proxy/license/AI/EVA engine
+  changes; original module locks unchanged. Node: 72 PASS. Original model tests
+  PASS. Temporary pinned-GitHub-mirror copy: model/bot/uistore race tests PASS;
+  production App/live/transcript/runner tests with forbidden-access Windows WMI
+  boundary PASS; Windows cross-build and scoped vet PASS. Original full release
+  gate is not certified; native/live-site acceptance NOT_RUN. New feature not
+  pushed or packaged yet. See docs/FIRST_MESSAGE_SETTINGS.md for boundaries.
+
+- 2026-10-17 — Owner requested packaging and GitHub push of first-message
+  controls. Preparing clean source-only `root-project-first-message-final-UNVERIFIED.zip`
+  with current verification evidence and checksums. Runtime/private data and
+  build outputs remain excluded. Original release gate remains BLOCKED; prior
+  isolated checks are documented separately, not substituted for certification.

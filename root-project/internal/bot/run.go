@@ -17,6 +17,9 @@ import (
 )
 
 type Config struct {
+	firstIncomingID      string
+	FirstMessage         model.FirstMessageSettings
+	firstIncoming        *model.Message
 	AppURL               string
 	APIBaseURL           string
 	DataDir              string

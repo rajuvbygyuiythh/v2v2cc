@@ -227,6 +227,7 @@ type EVATranscriptLine struct {
 }
 
 type AccountState struct {
+	FirstTurns        map[string]FirstTurnState `json:"first_turns,omitempty"`
 	FirstMessagesSent map[string]FirstMessage   `json:"first_messages_sent"`
 	SentMessageCounts map[string]int            `json:"sent_message_counts"`
 	BaselineDone      map[string]bool           `json:"baseline_done"`

@@ -360,10 +360,34 @@ func processDMAutoResponses(
 		currentIncoming := incomingMessages(messages, currentUserID)
 
 		if needsFirstMessage {
+			var firstIncoming *model.Message
+			for i := range currentIncoming {
+				if _, seen := accountState.IncomingMessages[currentIncoming[i].ID]; !seen {
+					firstIncoming = &currentIncoming[i]
+					break
+				}
+			}
+			firstTurn := workerFirstTurn(cfg, &accountState, target.ConversationID, rng)
+			if err := saveBotAccountState(p.BotState, state, accountKey, accountState); err != nil {
+				return workDone, err
+			}
+			if !firstTurn.BotFirst && firstIncoming == nil {
+				continue
+			}
+			if firstIncoming != nil {
+				if err := sleepFirstReply(ctx, cfg, rng); err != nil {
+					return workDone, err
+				}
+			}
 			var messageText string
 			var hasUsername bool
 			if evaChatEnabled(cfg) {
-				result := evaChatStart(cfg, &accountState, target.UserID, rng)
+				result := EVAReplyResult{}
+				if firstIncoming != nil {
+					result = evaChatReply(cfg, &accountState, target.UserID, firstIncoming.Content, rng)
+				} else {
+					result = evaChatStart(cfg, &accountState, target.UserID, rng)
+				}
 				messageText = result.Text
 				hasUsername = result.HasUsername
 				logf(cfg, "  -> [evachat] opener from %s (%s)\n", result.SourcePool, result.Reason)
@@ -670,10 +694,27 @@ func sendFirstMessageIfNeeded(
 		return false, nil
 	}
 
+	firstTurn := workerFirstTurn(cfg, &accountState, target.ConversationID, rng)
+	if err := saveBotAccountState(p.BotState, state, accountKey, accountState); err != nil {
+		return false, err
+	}
+	if !firstTurn.BotFirst && incoming == nil {
+		return false, nil
+	}
+	if incoming != nil {
+		if err := sleepFirstReply(ctx, cfg, rng); err != nil {
+			return false, err
+		}
+	}
 	var messageText string
 	var hasUsername bool
 	if evaChatEnabled(cfg) {
-		result := evaChatStart(cfg, &accountState, target.UserID, rng)
+		result := EVAReplyResult{}
+		if incoming != nil {
+			result = evaChatReply(cfg, &accountState, target.UserID, incoming.Content, rng)
+		} else {
+			result = evaChatStart(cfg, &accountState, target.UserID, rng)
+		}
 		messageText = result.Text
 		hasUsername = result.HasUsername
 		logf(cfg, "[realtime] EVAChat opener from %s (%s)\n", result.SourcePool, result.Reason)
@@ -973,7 +1014,7 @@ func getActiveSequence(cfg Config, accountState *model.AccountState, targetConve
 	return cfg.MessageSequence
 }
 
-func executeMatchChatSequence(
+func executeMatchChatSequenceBody(
 	ctx context.Context,
 	client *api.Client,
 	cfg Config,
@@ -1007,7 +1048,7 @@ func executeMatchChatSequence(
 			break
 		}
 
-		if sentCount > 0 {
+		if sentCount > 0 || cfg.firstIncoming != nil {
 			var replyDelay time.Duration
 			if cfg.ReplyDelayMax > cfg.ReplyDelayMin {
 				replyDelay = cfg.ReplyDelayMin + time.Duration(rng.Int63n(int64(cfg.ReplyDelayMax-cfg.ReplyDelayMin)))
@@ -1043,6 +1084,11 @@ func executeMatchChatSequence(
 			accountState.SnapTgSentCount++
 			_ = markUserFlagged(cfg.DataDir, target.UserID)
 		}
+		if cfg.firstIncoming != nil {
+			markSeen(accountState.IncomingMessages, target.ConversationID, []model.Message{*cfg.firstIncoming}, true)
+			logReceiveActivity(cfg, currentUserID, target, cfg.firstIncoming.Content)
+			cfg.firstIncoming = nil
+		}
 		logSendActivity(cfg, currentUserID, target, messageText)
 		sentCount++
 		accountState.SentMessageCounts[target.UserID] = sentCount
@@ -1077,6 +1123,9 @@ func executeMatchChatSequence(
 				}
 
 				if event.Type == "chatMessage" && event.UserID == target.UserID {
+					if cfg.firstIncomingID != "" && event.MessageID == cfg.firstIncomingID {
+						continue
+					}
 					replyTimer.Stop()
 					logf(cfg, "Received reply from %s: %q\n", target.Username, event.Content)
 					logReceiveActivity(cfg, currentUserID, target, event.Content)
@@ -1132,6 +1181,9 @@ func executeMatchChatSequence(
 					return true, nil
 				}
 				if event.Type == "chatMessage" && event.UserID == target.UserID {
+					if cfg.firstIncomingID != "" && event.MessageID == cfg.firstIncomingID {
+						continue
+					}
 					logf(cfg, "Received another message from %s after sequence finished: %q\n", target.Username, event.Content)
 					logReceiveActivity(cfg, currentUserID, target, event.Content)
 				}
@@ -1161,7 +1213,7 @@ func executeMatchEVAChat(
 
 	sentCount := accountState.SentMessageCounts[target.UserID]
 	session := evaChatSession(&accountState, target.UserID)
-	if !session.Started && !session.Ended {
+	if !session.Started && !session.Ended && cfg.firstIncoming == nil {
 		result := evaChatStart(cfg, &accountState, target.UserID, rng)
 		if result.Text == "" {
 			return true, fmt.Errorf("EVAChat opener unavailable: %s", result.Reason)
@@ -1205,33 +1257,44 @@ func executeMatchEVAChat(
 		var incoming model.Message
 		chatActive := true
 
-	waitLoop:
-		for {
-			select {
-			case <-ctx.Done():
-				replyTimer.Stop()
-				return true, ctx.Err()
-			case <-replyTimer.C:
-				logf(cfg, "[evachat] No reply from %s within %.0f seconds. Finding new match.\n", target.Username, replyTimeout.Seconds())
-				return true, nil
-			case event := <-realtimeEvents:
-				if event.ConversationID != target.ConversationID {
-					continue
-				}
-				if event.Type == "chatMessage" && event.UserID == target.UserID {
+		if cfg.firstIncoming != nil {
+			incoming = *cfg.firstIncoming
+			cfg.firstIncoming = nil
+			replyTimer.Stop()
+			logReceiveActivity(cfg, currentUserID, target, incoming.Content)
+		} else {
+		waitLoop:
+			for {
+				select {
+				case <-ctx.Done():
 					replyTimer.Stop()
-					incoming = model.Message{ID: event.MessageID, Content: event.Content, CreatedAt: event.CreatedAt}
-					incoming.Author.ID = event.UserID
-					logReceiveActivity(cfg, currentUserID, target, incoming.Content)
-					break waitLoop
-				}
-				if event.Type == "matchUpdate" && event.Closed {
-					replyTimer.Stop()
-					logf(cfg, "[evachat] Conversation closed by %s. Finding new match.\n", event.ClosedBy)
-					chatActive = false
-					break waitLoop
+					return true, ctx.Err()
+				case <-replyTimer.C:
+					logf(cfg, "[evachat] No reply from %s within %.0f seconds. Finding new match.\n", target.Username, replyTimeout.Seconds())
+					return true, nil
+				case event := <-realtimeEvents:
+					if event.ConversationID != target.ConversationID {
+						continue
+					}
+					if event.Type == "chatMessage" && event.UserID == target.UserID {
+						if cfg.firstIncomingID != "" && event.MessageID == cfg.firstIncomingID {
+							continue
+						}
+						replyTimer.Stop()
+						incoming = model.Message{ID: event.MessageID, Content: event.Content, CreatedAt: event.CreatedAt}
+						incoming.Author.ID = event.UserID
+						logReceiveActivity(cfg, currentUserID, target, incoming.Content)
+						break waitLoop
+					}
+					if event.Type == "matchUpdate" && event.Closed {
+						replyTimer.Stop()
+						logf(cfg, "[evachat] Conversation closed by %s. Finding new match.\n", event.ClosedBy)
+						chatActive = false
+						break waitLoop
+					}
 				}
 			}
+
 		}
 
 		if !chatActive {
@@ -1346,7 +1409,7 @@ func executeMatchKeywordChatSequence(
 	assignedUsername := getOrAssignUsername(cfg, &accountState, target.UserID, rng)
 
 	// Step 1: Send opener if bot has not sent any message to this user yet
-	if sentCount == 0 {
+	if sentCount == 0 && cfg.firstIncoming == nil {
 		var openerText string
 		if len(cfg.KeywordRules) > 0 {
 			openerText = RenderKeywordReply(cfg.KeywordRules[0].ReplyTemplate, rng, assignedUsername)
@@ -1396,35 +1459,46 @@ func executeMatchKeywordChatSequence(
 		var incomingText string
 		chatActive := true
 
-	waitLoop:
-		for {
-			select {
-			case <-ctx.Done():
-				replyTimer.Stop()
-				return true, ctx.Err()
-			case <-replyTimer.C:
-				logf(cfg, "[keyword] No reply from %s within timeout. Finding new match.\n", target.Username)
-				return true, nil
-			case event := <-realtimeEvents:
-				if event.ConversationID != target.ConversationID {
-					continue
-				}
+		if cfg.firstIncoming != nil {
+			incomingText = cfg.firstIncoming.Content
+			cfg.firstIncoming = nil
+			replyTimer.Stop()
+			logReceiveActivity(cfg, currentUserID, target, incomingText)
+		} else {
+		waitLoop:
+			for {
+				select {
+				case <-ctx.Done():
+					replyTimer.Stop()
+					return true, ctx.Err()
+				case <-replyTimer.C:
+					logf(cfg, "[keyword] No reply from %s within timeout. Finding new match.\n", target.Username)
+					return true, nil
+				case event := <-realtimeEvents:
+					if event.ConversationID != target.ConversationID {
+						continue
+					}
 
-				if event.Type == "chatMessage" && event.UserID == target.UserID {
-					replyTimer.Stop()
-					incomingText = event.Content
-					logf(cfg, "[keyword] Received reply from %s: %q\n", target.Username, incomingText)
-					logReceiveActivity(cfg, currentUserID, target, incomingText)
-					markSeen(accountState.IncomingMessages, target.ConversationID, []model.Message{{ID: event.MessageID, Content: event.Content}}, true)
-					_ = saveBotAccountState(p.BotState, state, accountKey, accountState)
-					break waitLoop
-				} else if event.Type == "matchUpdate" && event.Closed {
-					replyTimer.Stop()
-					logf(cfg, "[keyword] Conversation closed by %s. Finding new match.\n", event.ClosedBy)
-					chatActive = false
-					break waitLoop
+					if event.Type == "chatMessage" && event.UserID == target.UserID {
+						if cfg.firstIncomingID != "" && event.MessageID == cfg.firstIncomingID {
+							continue
+						}
+						replyTimer.Stop()
+						incomingText = event.Content
+						logf(cfg, "[keyword] Received reply from %s: %q\n", target.Username, incomingText)
+						logReceiveActivity(cfg, currentUserID, target, incomingText)
+						markSeen(accountState.IncomingMessages, target.ConversationID, []model.Message{{ID: event.MessageID, Content: event.Content}}, true)
+						_ = saveBotAccountState(p.BotState, state, accountKey, accountState)
+						break waitLoop
+					} else if event.Type == "matchUpdate" && event.Closed {
+						replyTimer.Stop()
+						logf(cfg, "[keyword] Conversation closed by %s. Finding new match.\n", event.ClosedBy)
+						chatActive = false
+						break waitLoop
+					}
 				}
 			}
+
 		}
 
 		if !chatActive {

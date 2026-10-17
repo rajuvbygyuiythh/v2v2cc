@@ -577,3 +577,83 @@ func TestAppTimingProfilesSaveIndependently(t *testing.T) {
 		t.Fatalf("show save changed worker: %+v %v", saved, err)
 	}
 }
+
+func TestShowModeUserFirstKeepsLineOne(t *testing.T) {
+	a := browserTestApp(t)
+	if err := a.SaveMessageSettings(model.NewMessageSettings("first line\nsecond line", "")); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeDOMBackend{controls: browser.DOMControls{HasInput: true, Buttons: []string{"SKIP"}}}
+	r := testLiveRunner(a, fake)
+	r.firstMessage = model.FirstMessageSettings{Mode: "user"}
+	ctx := context.Background()
+	r.step(ctx)
+	r.step(ctx)
+	if fake.totalSent() != 0 || !r.firstWaiting {
+		t.Fatal("user-first sent unsolicited opener")
+	}
+	fake.addRow("partner", "hello")
+	r.step(ctx)
+	if fake.sentCount("first line") != 1 || fake.sentCount("second line") != 0 {
+		t.Fatal("first incoming skipped line 1")
+	}
+	fake.addRow("partner", "more")
+	r.step(ctx)
+	if fake.sentCount("second line") != 1 {
+		t.Fatal("second reply incorrect")
+	}
+}
+func TestShowModeFirstWaitTimeoutIndependent(t *testing.T) {
+	a := browserTestApp(t)
+	if err := a.SaveMessageSettings(model.NewMessageSettings("hi", "")); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeDOMBackend{controls: browser.DOMControls{HasInput: true, Buttons: []string{"SKIP"}}}
+	r := testLiveRunner(a, fake)
+	r.firstMessage = model.FirstMessageSettings{Mode: "user", WaitTimeout: true, WaitMinSeconds: 30, WaitMaxSeconds: 30}
+	ctx := context.Background()
+	r.step(ctx)
+	deadline := r.firstDeadline
+	if deadline.IsZero() {
+		t.Fatal("no first-message deadline")
+	}
+	r.step(ctx)
+	if !deadline.Equal(r.firstDeadline) {
+		t.Fatal("poll reset timer")
+	}
+	r.firstDeadline = time.Now().Add(-time.Second)
+	r.step(ctx)
+	if fake.clickCount("SKIP") != 1 || fake.totalSent() != 0 {
+		t.Fatal("first timeout failed with no-reply skip disabled")
+	}
+}
+func TestShowModeExistingIncomingOverridesBotFirst(t *testing.T) {
+	a := browserTestApp(t)
+	if err := a.SaveMessageSettings(model.NewMessageSettings("hi\nnext", "")); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeDOMBackend{controls: browser.DOMControls{HasInput: true, Buttons: []string{"SKIP"}}}
+	fake.addRow("partner", "already here")
+	r := testLiveRunner(a, fake)
+	r.replyDelayMin, r.replyDelayMax = 30*time.Millisecond, 30*time.Millisecond
+	before := time.Now()
+	r.step(context.Background())
+	if fake.sentCount("hi") != 1 || time.Since(before) < 25*time.Millisecond {
+		t.Fatal("incoming lost or sent as undelayed opener")
+	}
+}
+func TestShowModeFirstDecisionNotRerolled(t *testing.T) {
+	a := browserTestApp(t)
+	if err := a.SaveMessageSettings(model.NewMessageSettings("hi", "")); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeDOMBackend{controls: browser.DOMControls{HasInput: true, Buttons: []string{"SKIP"}}}
+	r := testLiveRunner(a, fake)
+	r.firstMessage = model.FirstMessageSettings{Mode: "random", BotFirstPercent: 0}
+	r.step(context.Background())
+	r.firstMessage.BotFirstPercent = 100
+	r.step(context.Background())
+	if fake.totalSent() != 0 {
+		t.Fatal("same conversation rerolled")
+	}
+}
