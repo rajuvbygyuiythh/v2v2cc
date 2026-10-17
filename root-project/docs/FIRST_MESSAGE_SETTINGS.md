@@ -1,5 +1,9 @@
 # First-message policy — 2026-10-17
 
+> Current Show Mode lifecycle: login is idle until explicit Start Show Chat.
+> Settings and controls now live in Browser. See [SHOW_MODE_CONTROL.md](SHOW_MODE_CONTROL.md);
+> this supersedes older auto-start/browser-restart instructions below.
+
 Owner-authorized scope: add first-sender controls to the two existing timing
 profiles. No browser driver, login, proxy, license, AI or EVA engine changes.
 

@@ -68,3 +68,13 @@ export function StopBot() {
 export function SaveShowModeSettings(arg1) {
  return window['go']['main']['App']['SaveShowModeSettings'](arg1);
 }
+
+export function GetShowControlState() {
+  return window['go']['main']['App']['GetShowControlState']();
+}
+export function StartShowChat(arg1, arg2) {
+  return window['go']['main']['App']['StartShowChat'](arg1, arg2);
+}
+export function StopShowChat(arg1) {
+  return window['go']['main']['App']['StopShowChat'](arg1);
+}

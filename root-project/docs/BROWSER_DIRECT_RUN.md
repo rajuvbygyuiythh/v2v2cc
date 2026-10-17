@@ -1,4 +1,8 @@
 > Update: advanced verification is now included. The implementation history
+
+> Current Show Mode lifecycle: login is idle until explicit Start Show Chat.
+> Settings and controls now live in Browser. See [SHOW_MODE_CONTROL.md](SHOW_MODE_CONTROL.md);
+> this supersedes older auto-start/browser-restart instructions below.
 > below describes the first direct-run patch; use `VERIFICATION.md` and the
 > delivered `VERIFICATION-REPORT.json` for current verification status.
 

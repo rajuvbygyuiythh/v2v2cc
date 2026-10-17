@@ -657,3 +657,36 @@ func TestShowModeFirstDecisionNotRerolled(t *testing.T) {
 		t.Fatal("same conversation rerolled")
 	}
 }
+
+func TestShowFollowUpUsesConfiguredDelay(t *testing.T) {
+	a := browserTestApp(t)
+	fake := &fakeDOMBackend{controls: browser.DOMControls{HasInput: true, Buttons: []string{"SKIP"}}}
+	r := testLiveRunner(a, fake)
+	ctx := context.Background()
+	snapshot, _ := fake.ReadDOMSnapshot(ctx)
+	r.reset(snapshot.Controls)
+	r.replyDelayMin, r.replyDelayMax = 30*time.Millisecond, 30*time.Millisecond
+	progress := ""
+	r.onProgress = func(detail, decision string) {
+		if strings.Contains(detail, "Follow-up pending") {
+			progress = detail
+		}
+	}
+	before := time.Now()
+	r.sendLines(ctx, []string{"first", "second"})
+	if fake.totalSent() != 2 || time.Since(before) < 25*time.Millisecond || !strings.Contains(progress, "30ms") {
+		t.Fatal("follow-up ignored configured delay", progress)
+	}
+}
+func TestShowCancelledZeroDelayCannotSend(t *testing.T) {
+	a := browserTestApp(t)
+	fake := &fakeDOMBackend{controls: browser.DOMControls{HasInput: true, Buttons: []string{"SKIP"}}}
+	r := testLiveRunner(a, fake)
+	snapshot, _ := fake.ReadDOMSnapshot(context.Background())
+	r.reset(snapshot.Controls)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if !r.sendLines(ctx, []string{"must not send"}) || fake.totalSent() != 0 {
+		t.Fatal("cancelled zero-delay send escaped")
+	}
+}

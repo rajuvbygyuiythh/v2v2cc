@@ -130,6 +130,10 @@ func (a *App) newLiveResponder() (liveResponder, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	return a.newLiveResponderWithSettings(settings)
+}
+
+func (a *App) newLiveResponderWithSettings(settings model.MessageSettings) (liveResponder, string, error) {
 	mode := settings.EffectiveChatMode()
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	username := ""
@@ -168,6 +172,8 @@ func (a *App) newLiveResponder() (liveResponder, string, error) {
 // DOM runner: single-consumer queue over the observer's retained rows. Unknown
 // authors are not guessed; uncertain sends pause until a different conversation.
 type liveRunner struct {
+	initialBaseline          *browser.DOMSnapshot
+	onProgress               func(string, string)
 	firstMessage             model.FirstMessageSettings
 	firstWaiting             bool
 	firstDeadline            time.Time
@@ -198,43 +204,6 @@ type liveRunner struct {
 	nextChatAt               time.Time
 	previousPhase            string
 	probeLogged              bool
-}
-
-func (a *App) runLiveChat(ctx context.Context, backend browser.Backend, _ model.LoginInfo, profileName string, index, total int) {
-	dom, ok := backend.(browser.DOMChatBackend)
-	if !ok {
-		a.log("activity", "SHOW MODE ERROR | backend does not support DOM chat")
-		return
-	}
-	prefix := fmt.Sprintf("[%s show-live %d/%d]", profileName, index, total)
-	showSettings, err := a.uiStore.LoadShowModeSettings()
-	if err != nil {
-		a.log("activity", prefix+" SETTINGS FAILED | could not load Reply delay settings: "+err.Error())
-		return
-	}
-	replyDelayMin, replyDelayMax := showModeReplyDelayRange(showSettings)
-
-	observed, stopTranscript := a.startHomeChatObserver(ctx, dom, profileName, index, total)
-	defer stopTranscript()
-	r := &liveRunner{
-		firstMessage:  showSettings.FirstMessage.Effective(),
-		dom:           observed,
-		prefix:        prefix,
-		logf:          a.log,
-		newResponder:  a.newLiveResponder,
-		replyDelayMin: replyDelayMin,
-		replyDelayMax: replyDelayMax,
-		replyDelayRNG: rand.New(rand.NewSource(time.Now().UnixNano())),
-		autoSkip:      showSettings.AutoSkip,
-		noReplyMin:    time.Duration(showSettings.NoReplyMinSeconds) * time.Second,
-		noReplyMax:    time.Duration(showSettings.NoReplyMaxSeconds) * time.Second,
-		nextChatMin:   time.Duration(showSettings.NextChatMinSeconds) * time.Second,
-		nextChatMax:   time.Duration(showSettings.NextChatMaxSeconds) * time.Second,
-		pollInterval:  350 * time.Millisecond,
-	}
-	a.log("activity", fmt.Sprintf("%s DOM READY | browser-only chat watcher started; reply delay setting=%s-%s; close its browser window to stop", r.prefix, r.replyDelayMin, r.replyDelayMax))
-	r.run(ctx)
-	a.log("activity", r.prefix+" LIVE CHAT stopped")
 }
 
 func showModeReplyDelayRange(settings model.ShowModeSettings) (time.Duration, time.Duration) {
@@ -330,6 +299,9 @@ func (r *liveRunner) step(ctx context.Context) bool {
 	if c.Phase != "chatting" {
 		r.responder = nil
 		r.queue = nil
+		if time.Now().Before(r.nextChatAt) {
+			r.progress("Waiting before next chat until "+r.nextChatAt.Format("15:04:05"), "")
+		}
 		if !time.Now().Before(r.nextChatAt) && hasDOMButton(c.Buttons, "START") && time.Since(r.lastStartAt) > 6*time.Second {
 			r.lastStartAt = time.Now()
 			clicked, err := r.dom.ClickDOMButton(ctx, []string{"START"})
@@ -363,6 +335,18 @@ func (r *liveRunner) step(ctx context.Context) bool {
 		return false
 	}
 	if r.responder == nil {
+		suppressOpener := false
+		if r.initialBaseline != nil {
+			if r.initialBaseline.Controls.Conversation == c.Conversation {
+				for _, row := range r.initialBaseline.Messages {
+					if row.ID != "" {
+						r.seenIDs[row.ID] = true
+						suppressOpener = true
+					}
+				}
+			}
+			r.initialBaseline = nil
+		}
 		// Seed own/unknown history only. An already-present partner message
 		// wins over an unsolicited opener and is processed through Reply.
 		for _, row := range snapshot.Messages {
@@ -380,12 +364,20 @@ func (r *liveRunner) step(ctx context.Context) bool {
 		r.logf("activity", fmt.Sprintf("%s CHAT STARTED | mode=%s history=%d observer=%t", r.prefix, mode, len(r.seenIDs), c.ObserverReady))
 		hasIncoming := false
 		for _, row := range snapshot.Messages {
-			if row.ID != "" && strings.EqualFold(row.Author, c.Partner) && strings.TrimSpace(row.Text) != "" {
+			if row.ID != "" && !r.seenIDs[row.ID] && strings.EqualFold(row.Author, c.Partner) && strings.TrimSpace(row.Text) != "" {
 				hasIncoming = true
 				break
 			}
 		}
-		botFirst := r.firstMessage.ChooseBotFirst(r.replyDelayRNG)
+		botFirst := r.firstMessage.ChooseBotFirst(r.replyDelayRNG) && !suppressOpener
+		decision := "User first"
+		if botFirst {
+			decision = "Bot first"
+		}
+		if suppressOpener {
+			decision = "Existing chat — waiting for a new user message (history ignored)"
+		}
+		r.progress("Waiting for first turn", decision)
 		if botFirst && !hasIncoming {
 			// Recheck just before opening: incoming may have arrived while loading
 			// the responder. There is no atomic browser/server ordering guarantee.
@@ -400,7 +392,7 @@ func (r *liveRunner) step(ctx context.Context) bool {
 			}
 			snapshot.Messages = fresh.Messages
 			for _, row := range snapshot.Messages {
-				if row.ID != "" && strings.EqualFold(row.Author, c.Partner) && strings.TrimSpace(row.Text) != "" {
+				if row.ID != "" && !r.seenIDs[row.ID] && strings.EqualFold(row.Author, c.Partner) && strings.TrimSpace(row.Text) != "" {
 					hasIncoming = true
 					break
 				}
@@ -413,6 +405,9 @@ func (r *liveRunner) step(ctx context.Context) bool {
 		policy := r.firstMessage.Effective()
 		if policy.WaitTimeout {
 			r.firstDeadline = time.Now().Add(policy.WaitDuration(r.replyDelayRNG))
+		}
+		if hasIncoming {
+			r.progress("New user message detected — preparing reply", "User already messaged — reply first")
 		}
 		// Fall through: a partner already present must receive a reply, not a second opener.
 	}
@@ -436,11 +431,13 @@ func (r *liveRunner) step(ctx context.Context) bool {
 	}
 	if len(r.queue) == 0 {
 		if r.firstWaiting && !r.firstDeadline.IsZero() && !time.Now().Before(r.firstDeadline) {
+			r.progress("First-message timeout — skipping idle conversation", "")
 			r.timeoutRotating = true
 			r.rotating = true
 			return r.rotate(ctx)
 		}
 		if r.autoSkip && !r.replyDeadline.IsZero() && !time.Now().Before(r.replyDeadline) {
+			r.progress("No-reply timeout — skipping idle conversation", "")
 			r.replyDeadline = time.Time{}
 			r.timeoutRotating = true
 			r.rotating = true
@@ -452,6 +449,7 @@ func (r *liveRunner) step(ctx context.Context) bool {
 	r.logf("activity", fmt.Sprintf("%s INCOMING | partner row accepted; pending=%d", r.prefix, len(r.queue)))
 	replyDelay := chooseShowModeReplyDelay(r.replyDelayRNG, r.replyDelayMin, r.replyDelayMax)
 	r.logf("activity", fmt.Sprintf("%s REPLY DELAY | selected=%s setting=%s-%s", r.prefix, replyDelay, r.replyDelayMin, r.replyDelayMax))
+	r.progress(fmt.Sprintf("Reply pending — waiting %s (configured %s–%s)", replyDelay, r.replyDelayMin, r.replyDelayMax), "")
 	if sleepLive(ctx, replyDelay) {
 		return true
 	}
@@ -503,11 +501,21 @@ func (r *liveRunner) sendLines(ctx context.Context, lines []string) bool {
 		if line == "" {
 			continue
 		}
-		if i > 0 && sleepLive(ctx, 400*time.Millisecond) {
+		if ctx.Err() != nil {
 			return true
+		}
+		if i > 0 {
+			delay := chooseShowModeReplyDelay(r.replyDelayRNG, r.replyDelayMin, r.replyDelayMax)
+			r.progress(fmt.Sprintf("Follow-up pending — waiting %s", delay), "")
+			if sleepLive(ctx, delay) {
+				return true
+			}
 		}
 		if !r.stillCurrent(ctx) {
 			return ctx.Err() != nil
+		}
+		if ctx.Err() != nil {
+			return true
 		}
 		sent, err := r.dom.SendDOMMessage(ctx, line)
 		if err != nil && r.pageGone(err) {
@@ -521,6 +529,7 @@ func (r *liveRunner) sendLines(ctx context.Context, lines []string) bool {
 		if r.autoSkip {
 			r.replyDeadline = time.Now().Add(chooseShowModeReplyDelay(r.replyDelayRNG, r.noReplyMin, r.noReplyMax))
 		}
+		r.progress("Send confirmed — waiting for partner", "")
 		r.logf("activity", r.prefix+" SEND CONFIRMED | new own message row observed")
 	}
 	return false
@@ -581,7 +590,13 @@ func (r *liveRunner) rotate(ctx context.Context) bool {
 func (r *liveRunner) pageGone(err error) bool {
 	return errors.Is(err, browser.ErrPageUnavailable) || errors.Is(err, context.Canceled)
 }
+func (r *liveRunner) progress(detail, decision string) {
+	if r.onProgress != nil {
+		r.onProgress(detail, decision)
+	}
+}
 func (r *liveRunner) logStepError(message string) {
+	r.progress(message, "")
 	if message == r.lastStepError {
 		return
 	}
@@ -597,6 +612,9 @@ func hasDOMButton(buttons []string, label string) bool {
 	return false
 }
 func sleepLive(ctx context.Context, d time.Duration) bool {
+	if ctx.Err() != nil {
+		return true
+	}
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {

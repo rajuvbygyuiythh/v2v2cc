@@ -9,7 +9,7 @@ after every meaningful change** (newest last). Never rewrite old entries.
 <!-- AUTO:BEGIN -->
 _Auto status 2026-10-17. Do not edit this block by hand._
 
-- Source fingerprint: `2c8219aa5de5d020…`
+- Source fingerprint: `d1181b1618eba624…`
 - Browser options: `rod`, `chromedp`, `show_mode`
 - Capture tool: v1.2.1
 - Last verification: **BLOCKED** (PASS 3, FAIL 0, BLOCKED 10) — BLOCKED is not PASS; see `verification-output/report.json`
@@ -274,3 +274,29 @@ license, proxy or dependency changes.
   with current verification evidence and checksums. Runtime/private data and
   build outputs remain excluded. Original release gate remains BLOCKED; prior
   isolated checks are documented separately, not substituted for certification.
+
+- 2026-10-17 — After owner-reported settings/first-sender confusion, owner
+  approved explicit Show control lifecycle. Confirmed prior login auto-start
+  and Home Start Bot were independent paths; screenshots alone did not prove
+  the exact fast-reply cause. Moved Show settings to Browser, retained Standard
+  settings under Setting, renamed Home Standard buttons. New show_control.go
+  keeps login idle, exposes per-browser Start/Stop and backend running snapshots,
+  freezes timing + Message settings, checks revisions and blocks active saves.
+  Stop drains before ownership release while leaving browser open. Pre-Start
+  rows are seeded as history, not replied to. Show follow-up lines now use its
+  configured reply delay instead of a fixed 400ms. Desktop account ownership
+  prevents Show/Standard and Show/Show overlap; optional worker hook checks
+  identity after login, with no driver/proxy/license/AI/EVA changes. In-process
+  scope only; old EXEs/CLI/other machines are outside the guard. Node: 76 PASS.
+  Temporary pinned-mirror copy: App/runner/transcript/capture lifecycle and
+  model/bot/uistore race tests PASS, including 3–6s cancellation, fixed 1s actual
+  delay, first/next timers, history, snapshots, freeze, conflicts and stop-drain.
+  Temporary-copy Windows cross-build, root Windows test compilation and scoped
+  vet PASS. Root module files unchanged; native Windows/live-site acceptance NOT_RUN.
+  See SHOW_MODE_CONTROL.md. No new remote push requested for this step.
+
+- 2026-10-17 — Owner requested updated clean ZIP and GitHub push for explicit
+  Show Start/Stop lifecycle. Preparing root-project-show-start-stop-UNVERIFIED.zip
+  from current source inventory with verification report/checksums. Excludes
+  private runtime data, caches and build outputs. Native Windows/live-site
+  acceptance remains NOT_RUN; isolated checks do not certify the release gate.

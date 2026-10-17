@@ -1,5 +1,9 @@
 # Show Mode (Browser row 03) — DOM observer edition
 
+> Current Show Mode lifecycle: login is idle until explicit Start Show Chat.
+> Settings and controls now live in Browser. See [SHOW_MODE_CONTROL.md](SHOW_MODE_CONTROL.md);
+> this supersedes older auto-start/browser-restart instructions below.
+
 Updated 2026-10-14. Rod/ChromeDP rows 01/02, login capture, Start Bot workers,
 license, proxy, DB schema and AI engine are unchanged. See `SHOW_MODE_FIX.md`
 for the exact scope and verification limitations.

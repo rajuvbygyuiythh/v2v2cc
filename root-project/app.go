@@ -26,20 +26,25 @@ import (
 )
 
 type App struct {
-	ctx            context.Context
-	dataDir        string
-	uiStore        *uistore.Store
-	mu             sync.Mutex
-	chatFeed       *homeChatFeed
-	running        bool
-	runID          uint64
-	botCancel      context.CancelFunc
-	activeWorkers  map[string]bool
-	licenseKey     string
-	licenseInvalid bool
-	licenseReason  string
-	licenseTimer   *time.Ticker
-	licenseDone    chan bool
+	showMu           sync.Mutex
+	showSessions     map[string]*showBrowserSession
+	showSerial       uint64
+	showRevision     uint64
+	automationOwners map[string]string
+	ctx              context.Context
+	dataDir          string
+	uiStore          *uistore.Store
+	mu               sync.Mutex
+	chatFeed         *homeChatFeed
+	running          bool
+	runID            uint64
+	botCancel        context.CancelFunc
+	activeWorkers    map[string]bool
+	licenseKey       string
+	licenseInvalid   bool
+	licenseReason    string
+	licenseTimer     *time.Ticker
+	licenseDone      chan bool
 }
 
 func NewApp(dataDir string) (*App, error) {
@@ -115,6 +120,7 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) shutdown(ctx context.Context) {
 	_ = a.StopBot()
+	a.stopAllShowBrowsers()
 	if a.licenseTimer != nil {
 		a.licenseTimer.Stop()
 	}
@@ -453,8 +459,12 @@ func (a *App) SaveProxySettings(settings model.ProxySettings) error {
 	return nil
 }
 
+func (a *App) GetShowControlState() (ShowControlState, error) { return a.showControlState() }
+func (a *App) StartShowChat(id string, revision uint64) error { return a.startShowChat(id, revision) }
+func (a *App) StopShowChat(id string) error                   { return a.stopShowChat(id) }
+
 func (a *App) SaveShowModeSettings(settings model.ShowModeSettings) error {
-	return a.uiStore.SaveShowModeSettings(settings)
+	return a.saveShowSettings(settings)
 }
 
 func (a *App) SaveGeneralSettings(settings model.GeneralSettings) error {
@@ -596,6 +606,16 @@ func (a *App) TestEVAChatAI(settings model.MessageSettings) (string, error) {
 }
 
 func (a *App) CleanProfiles() error {
+	a.showMu.Lock()
+	defer a.showMu.Unlock()
+	if len(a.automationOwners) > 0 {
+		return fmt.Errorf("stop all automation before cleaning profiles")
+	}
+	for _, s := range a.showSessions {
+		if s.view.Status != "closed" {
+			return fmt.Errorf("close all Show browsers before cleaning profiles")
+		}
+	}
 	a.mu.Lock()
 	running := a.running
 	a.mu.Unlock()
@@ -633,6 +653,9 @@ func (a *App) StartBot() error {
 	a.log("activity", "bot started wait to process")
 
 	configs, err := a.buildBotConfigs()
+	if err == nil {
+		err = a.checkStandardConflicts(configs)
+	}
 	if err != nil {
 		a.mu.Lock()
 		a.running = false
@@ -641,6 +664,7 @@ func (a *App) StartBot() error {
 			a.runID++
 		}
 		a.mu.Unlock()
+		cancel()
 		a.emitStatus(false)
 		return err
 	}
@@ -652,6 +676,8 @@ func (a *App) StartBot() error {
 
 	for _, cfg := range configs {
 		workerCfg := cfg
+		owner := fmt.Sprintf("standard:%d:%s", runID, workerCfg.Profile)
+		workerCfg.AcquireAutomation = func(account string) (func(), error) { return a.acquireAutomation(account, owner) }
 		profileName := workerCfg.Profile
 		a.setWorkerRunning(profileName, true)
 		go func() {
@@ -906,6 +932,10 @@ func safeProfileName(name string) string {
 func (a *App) runFreshBrowser(profileDir string, profileName string, settings model.BrowserSettings, selectedProxy *proxy.Entry, index int, total int) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if settings.LiveChat && a.ctx != nil {
+		stop := context.AfterFunc(a.ctx, cancel)
+		defer stop()
+	}
 	a.runFreshBrowserWithBackend(ctx, profileDir, profileName, settings, selectedProxy, index, total, browser.New)
 }
 
@@ -936,6 +966,12 @@ func (a *App) runFreshBrowserWithBackend(ctx context.Context, profileDir string,
 	}
 	// LIFO defers close the browser before removing its files.
 	defer func() { _ = backend.Close() }()
+	var showSession *showBrowserSession
+	if settings.LiveChat {
+		showSession = a.registerShowBrowser(ctx, backend, profileName, index, total)
+		ctx = showSession.ctx
+		defer a.detachShowBrowser(showSession)
+	}
 
 	a.log("info", fmt.Sprintf(
 		"[%s fresh %d/%d] Opening brand-new %s browser. Old profile data is not used.",
@@ -988,11 +1024,12 @@ func (a *App) runFreshBrowserWithBackend(ctx context.Context, profileDir string,
 		loginPath,
 	))
 
-	// Show Mode: the browser stays open and chats in place. This blocks until
+	// Show Mode: the browser stays open, idle until explicit Start Show Chat. This blocks until
 	// the user closes the browser window or the run is cancelled; the deferred
 	// backend.Close above then performs the usual cleanup.
 	if settings.LiveChat {
-		a.runLiveChat(ctx, backend, login, profileName, index, total)
+		a.showLoginReady(showSession, login)
+		a.waitShowBrowser(showSession)
 	}
 }
 

@@ -1,6 +1,6 @@
 # Independent timing profiles (2026-10-17)
 
-Setting has two sub-pages with independent Save actions:
+Timing profiles remain independent. Show Mode has moved to Browser; Standard Bot remains in Setting:
 
 - **Show Mode — Browser Chat:** Browser option 03 only. Reply delay min/max,
   optional no-reply auto skip (default OFF), no-reply timeout (default 60–60s),
@@ -23,8 +23,9 @@ migration before modifying legacy values.
 Both forms validate integer seconds and min <= max, maximum 86400 seconds.
 Show Mode requires a positive no-reply minimum when auto skip is enabled.
 
-Show Mode copies timing values when its runner starts. Save then **close that
-Show Mode browser and Run again**. Standard values apply after **Stop / Start
+Show Mode copies timing values at explicit **Start Show Chat**. Use **Stop Show
+Chat → edit → Save → Start Show Chat** without closing the browser. See
+[SHOW_MODE_CONTROL.md](SHOW_MODE_CONTROL.md) for the current lifecycle. Standard values apply after **Stop / Start
 Bot**. Neither Save mutates an active runner's timings. Inline save/error
 notices explain this; switching sub-pages preserves edits. Message modes,
 usernames and proxies remain shared existing settings, not duplicated profiles.

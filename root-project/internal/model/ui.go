@@ -13,7 +13,7 @@ type BrowserSettings struct {
 	Backend  string `json:"backend"`
 	Headless bool   `json:"headless"`
 	// LiveChat is set only by the Show Mode preset (validateBrowserRun). It
-	// keeps the browser open after login and chats inside that browser.
+	// keeps the browser open after login; explicit Start Show Chat enables automation.
 	LiveChat bool `json:"live_chat,omitempty"`
 }
 
@@ -127,7 +127,7 @@ func DefaultBrowserOptions() []BrowserOption {
 		{
 			Key:         "show_mode",
 			Label:       "Show Mode",
-			Description: "Visible Rod browser for manual login. After login, chatting continues inside this browser (incoming auto-detect, replies, skip) until you close it.",
+			Description: "Visible Rod login browser. Login alone does not start chat. Save settings below, then use Start Show Chat / Stop Show Chat for each logged-in browser.",
 		},
 	}
 }

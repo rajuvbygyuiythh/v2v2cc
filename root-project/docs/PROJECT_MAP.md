@@ -12,24 +12,24 @@ _Auto-generated 2026-10-17 by `scripts/project-map.cjs`. Do not edit this block 
 
 ## Source inventory
 
-- Total source files: **195** (1130.0 KiB, excluding runtime/private data)
+- Total source files: **199** (1177.2 KiB, excluding runtime/private data)
 
 | Area | Files | Size |
 |---|---:|---:|
-| `internal/` | 95 | 471.0 KiB |
+| `internal/` | 96 | 472.0 KiB |
+| `(root files)` | 26 | 200.3 KiB |
 | `capture/` | 25 | 114.3 KiB |
-| `(root files)` | 24 | 174.9 KiB |
-| `docs/` | 14 | 83.0 KiB |
+| `docs/` | 15 | 90.1 KiB |
 | `apitest/` | 12 | 99.3 KiB |
-| `cmd/` | 9 | 97.4 KiB |
+| `cmd/` | 9 | 106.6 KiB |
 | `scripts/` | 8 | 40.1 KiB |
-| `tests/` | 8 | 50.1 KiB |
+| `tests/` | 8 | 54.3 KiB |
 
 ## Internal Go packages
 
 - `internal/api/` — 1 Go file(s)
 - `internal/applog/` — 4 Go file(s)
-- `internal/bot/` — 23 Go file(s)
+- `internal/bot/` — 24 Go file(s)
 - `internal/browser/` — 9 Go file(s)
 - `internal/license/` — 1 Go file(s)
 - `internal/model/` — 4 Go file(s)
@@ -70,6 +70,7 @@ _Auto-generated 2026-10-17 by `scripts/project-map.cjs`. Do not edit this block 
 - `docs/RECHECK_2026-10-15.md`
 - `docs/SETTINGS_PROFILES.md`
 - `docs/SHOW_MODE.md`
+- `docs/SHOW_MODE_CONTROL.md`
 - `docs/SHOW_MODE_FIX.md`
 - `docs/VERIFICATION.md`
 - `AGENTS.md` — locked scope and hard rules (read first)
@@ -100,3 +101,11 @@ _Auto-generated 2026-10-17 by `scripts/project-map.cjs`. Do not edit this block 
 - Show Mode first-wait state is in `live_chat.go`; sequence/EVA engines remain
   unchanged except the sequence responder's lazy first-line initialization.
 - `docs/FIRST_MESSAGE_SETTINGS.md`: scope, DM distinction, evidence and limits.
+
+## Explicit Show lifecycle (2026-10-17)
+
+- `show_control.go`: idle-login sessions, Start/Stop, running snapshots/revisions,
+  per-account ownership shared with the desktop Standard worker.
+- `app.go`: narrow lifecycle/public-method wiring; `internal/bot/run.go`: optional
+  ownership hook only. Browser drivers and chat engines unchanged.
+- `docs/SHOW_MODE_CONTROL.md`: current UI flow, boundaries and acceptance steps.

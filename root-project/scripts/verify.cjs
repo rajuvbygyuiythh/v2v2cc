@@ -102,7 +102,7 @@ function main() {
       "changed-go-format",
       fmt,
       [
-        "-l", "internal/model/first_message.go", "internal/model/first_message_test.go", "internal/model/model.go", "internal/bot/first_message.go", "internal/bot/first_message_test.go", "internal/bot/logic.go", "internal/bot/run.go", "internal/uistore/first_message_test.go", "internal/model/ui.go", "internal/uistore/store.go", "internal/uistore/show_mode.go", "internal/uistore/show_mode_test.go", "live_chat_test.go", "app.go", "main.go", "app_logging_test.go",
+        "-l", "show_control.go", "show_control_test.go", "internal/bot/automation_guard_test.go", "internal/model/first_message.go", "internal/model/first_message_test.go", "internal/model/model.go", "internal/bot/first_message.go", "internal/bot/first_message_test.go", "internal/bot/logic.go", "internal/bot/run.go", "internal/uistore/first_message_test.go", "internal/model/ui.go", "internal/uistore/store.go", "internal/uistore/show_mode.go", "internal/uistore/show_mode_test.go", "live_chat_test.go", "app.go", "main.go", "app_logging_test.go",
         "home_chat.go", "home_chat_test.go", "live_chat.go", "internal/browser/domchat.go",
         "internal/applog/applog.go", "internal/applog/applog_test.go",
         "internal/applog/capture.go", "internal/applog/capture_test.go",

@@ -1,5 +1,6 @@
 const state = {
   snapshot: null,
+  show: {loaded:false, dirty:false, pending:false, known:false, revision:0, snapshot:null, request:0, edits:0},
   currentTab: "home",
   browserFormLoaded: false,
   browserRunPending: false,
@@ -45,7 +46,7 @@ function setRunning(running) {
   pill.className = `pill ${running ? "running" : "stopped"}`;
   const cleanButton = document.getElementById("clean-profiles");
   if (cleanButton) {
-    cleanButton.disabled = !!running;
+    cleanButton.disabled = !!running || !!state.show.snapshot?.browsers?.some(b => b.status !== "closed");
     cleanButton.title = running ? "Stop the bot before cleaning profile data." : "";
   }
 }
@@ -129,13 +130,14 @@ function browserStatus(message, isError = false) {
 function setBrowserRunPending(pending) {
   state.browserRunPending = pending;
   document.querySelectorAll(".browser-run").forEach((button) => {
-    button.disabled = pending;
+    button.disabled = pending || (button.dataset.backend === "show_mode" && (state.show.dirty || state.show.pending));
   });
   document.getElementById("browser-options").setAttribute("aria-busy", String(pending));
 }
 
 async function runBrowserOption(option) {
   if (state.browserRunPending) return;
+  if (option.key === "show_mode" && (state.show.dirty || state.show.pending)) { browserStatus("Save Show Mode settings before opening a browser.",true); return; }
   const count = Number(document.getElementById("fresh-browser-count").value);
   if (!Number.isInteger(count) || count < 1 || count > 5) {
     browserStatus("Browser count must be between 1 and 5.", true);
@@ -165,6 +167,7 @@ async function runBrowserOption(option) {
 function renderBrowserOptions(options) {
   const root = document.getElementById("browser-options");
   root.innerHTML = "";
+  document.getElementById("show-launch-controls").replaceChildren();
   document.getElementById("browser-available").textContent = `Available: ${options.length}`;
   options.forEach((option, index) => {
     const row = document.createElement("div");
@@ -177,8 +180,10 @@ function renderBrowserOptions(options) {
       </div>
       <button type="button" class="primary-button browser-run" aria-label="Run ${escapeHtml(option.label)}">Run</button>
     `;
+    row.querySelector("button").dataset.backend = option.key;
+    if (option.key === "show_mode") {row.querySelector("button").textContent = "Open Browser / Login";row.querySelector("button").setAttribute("aria-label","Open Show Mode browser for login");}
     row.querySelector("button").addEventListener("click", () => runBrowserOption(option));
-    root.appendChild(row);
+    (option.key === "show_mode" ? document.getElementById("show-launch-controls") : root).appendChild(row);
   });
   setBrowserRunPending(state.browserRunPending);
 }
@@ -248,18 +253,10 @@ function fillForms(snapshot) {
   document.getElementById("match-reply-timeout-max").value = snapshot.general.match_reply_timeout_max_seconds || 60;
   document.getElementById("match-close-wait-min").value = snapshot.general.match_close_wait_min_seconds || 0;
   document.getElementById("match-close-wait-max").value = snapshot.general.match_close_wait_max_seconds || 0;
-  document.getElementById("reply-delay-min").value = (snapshot.show_mode || {}).reply_delay_min_seconds || 0;
-  document.getElementById("reply-delay-max").value = (snapshot.show_mode || {}).reply_delay_max_seconds || 0;
   document.getElementById("worker-reply-delay-min").value = snapshot.general.reply_delay_min_seconds || 0;
   document.getElementById("worker-reply-delay-max").value = snapshot.general.reply_delay_max_seconds || 0;
   fillFirstMessageSettings("standard", snapshot.general.first_message);
-  fillFirstMessageSettings("show", (snapshot.show_mode || {}).first_message);
-  const show = snapshot.show_mode || {};
-  for (const id of ["show-timeout-min", "show-timeout-max"]) document.getElementById(id).disabled = !show.auto_skip;
-  document.getElementById("show-auto-skip").checked = !!show.auto_skip;
-  for (const [id, key, fallback] of [["show-timeout-min","no_reply_min_seconds",60],["show-timeout-max","no_reply_max_seconds",60],["show-next-min","next_chat_min_seconds",0],["show-next-max","next_chat_max_seconds",0]]) {
-    document.getElementById(id).value = show[key] ?? fallback;
-  }
+  if (!state.show.loaded && !state.show.dirty) fillShowSettings(snapshot.show_mode || {});
 
   renderBrowserOptions(snapshot.browser_options || []);
   renderHomeStats(snapshot.home);
@@ -590,6 +587,8 @@ async function bootstrap() {
     attempts += 1;
     try {
       await refreshState();
+      await refreshShowControl();
+      setInterval(refreshShowControl, 1000);
       setInterval(autoRefreshStats, 3000);
       setInterval(refreshChatTranscript, 1000); // replay after missed events / closure
       return;
@@ -629,14 +628,14 @@ function bindTimingSettings() {
     for (const suffix of ["mode", "wait"]) document.getElementById(`${prefix}-first-${suffix}`).addEventListener("change", () => updateFirstMessageControls(prefix));
     updateFirstMessageControls(prefix);
   }
-  for (const button of document.querySelectorAll("[data-settings-tab]")) {
-    button.addEventListener("click", () => {
-      const show = button.dataset.settingsTab === "show";
-      document.getElementById("settings-show").hidden = !show;
-      document.getElementById("settings-standard").hidden = show;
-      for (const tab of document.querySelectorAll("[data-settings-tab]")) tab.setAttribute("aria-pressed", String(tab === button));
-    });
-  }
+  document.getElementById("manage-show-settings").addEventListener("click", () => { activateTab("browser"); document.getElementById("settings-show").scrollIntoView?.({block:"start"}); });
+  document.getElementById("refresh-show-control").addEventListener("click", refreshShowControl);
+  const showForm = document.getElementById("show-mode-form");
+  for (const event of ["input","change"]) showForm.addEventListener(event, () => {
+    state.show.dirty = true; state.show.edits++;
+    document.getElementById("show-save-status").textContent = "Unsaved changes — Save before opening or starting Show Chat.";
+    renderShowControl();
+  });
   const enabled = document.getElementById("show-auto-skip");
   enabled.addEventListener("change", () => {
     for (const id of ["show-timeout-min", "show-timeout-max"]) document.getElementById(id).disabled = !enabled.checked;
@@ -644,18 +643,25 @@ function bindTimingSettings() {
   document.getElementById("show-mode-form").addEventListener("submit", async event => {
     event.preventDefault();
     const status = document.getElementById("show-save-status");
+    if (state.show.pending || state.show.snapshot?.active) { status.textContent = "Stop all Show chats before editing or saving."; return; }
+    const edits = state.show.edits;
     try {
       validateTimingPairs([["reply-delay-min","reply-delay-max"],["show-timeout-min","show-timeout-max"],["show-next-min","show-next-max"]]);
       const number = id => Number(document.getElementById(id).value);
       if (enabled.checked && number("show-timeout-min") < 1) throw new Error("Auto skip needs a positive timeout.");
-      await invoke("SaveShowModeSettings", {
+      const payload = {
         first_message: readFirstMessageSettings("show"),
         reply_delay_min_seconds:number("reply-delay-min"), reply_delay_max_seconds:number("reply-delay-max"),
         auto_skip:enabled.checked, no_reply_min_seconds:number("show-timeout-min"), no_reply_max_seconds:number("show-timeout-max"),
         next_chat_min_seconds:number("show-next-min"), next_chat_max_seconds:number("show-next-max")
-      });
-      status.textContent = "Saved — close and restart Show Mode to apply. Running conversations are unchanged.";
+      };
+      state.show.pending = true; renderShowControl();
+      await invoke("SaveShowModeSettings", payload);
+      if (state.show.edits === edits) state.show.dirty = false;
+      await refreshShowControl();
+      status.textContent = state.show.dirty ? "Saved, but newer edits remain unsaved." : "Saved — press Start Show Chat when logged in. No browser restart required.";
     } catch (error) { status.textContent = error.message || String(error); }
+    finally { state.show.pending = false; renderShowControl(); }
   });
 }
 
@@ -682,4 +688,79 @@ function readFirstMessageSettings(prefix) {
   validateTimingPairs([[`${prefix}-first-min`,`${prefix}-first-max`]]);
   if (result.wait_timeout && result.wait_min_seconds < 1) throw new Error("First-message timeout needs a positive minimum.");
   return result;
+}
+
+function fillShowSettings(show) {
+  document.getElementById("reply-delay-min").value = show.reply_delay_min_seconds ?? 0;
+  document.getElementById("reply-delay-max").value = show.reply_delay_max_seconds ?? 0;
+  fillFirstMessageSettings("show", show.first_message);
+  document.getElementById("show-auto-skip").checked = !!show.auto_skip;
+  for (const [id,key,fallback] of [["show-timeout-min","no_reply_min_seconds",60],["show-timeout-max","no_reply_max_seconds",60],["show-next-min","next_chat_min_seconds",0],["show-next-max","next_chat_max_seconds",0]]) document.getElementById(id).value = show[key] ?? fallback;
+  state.show.loaded = true;
+}
+async function refreshShowControl() {
+  const request = ++state.show.request;
+  try {
+    const snapshot = await invoke("GetShowControlState");
+    if (request !== state.show.request) return;
+    if (!state.show.dirty && (!state.show.loaded || state.show.revision !== snapshot.revision)) fillShowSettings(snapshot.settings);
+    state.show.snapshot = snapshot; state.show.revision = snapshot.revision; state.show.known = true;
+    document.getElementById("show-control-status").textContent = snapshot.active ? "Show Chat active — Stop before changing settings." : "Login alone does not start chat. Select a ready browser and press Start Show Chat.";
+  } catch (error) {
+    if (request !== state.show.request) return;
+    state.show.known = false;
+    document.getElementById("show-control-status").textContent = "Status unavailable: " + (error.message || String(error)) + ". Refresh before Start.";
+  }
+  renderShowControl();
+}
+function showSettingsSummary(settings) {
+  if (!settings) return "Chat is stopped. Saved settings will be loaded at Start.";
+  const f = settings.first_message || {};
+  const first = f.mode === "random" ? `Random — bot first ${f.bot_first_percent}%` : (f.mode === "user" ? "User first" : "Bot first");
+  return `Running settings: ${first} · First wait: ${f.wait_timeout ? `${f.wait_min_seconds}–${f.wait_max_seconds}s` : "Unlimited"} · Reply delay: ${settings.reply_delay_min_seconds}–${settings.reply_delay_max_seconds}s · No-reply skip: ${settings.auto_skip ? `${settings.no_reply_min_seconds}–${settings.no_reply_max_seconds}s` : "OFF"} · Next chat: ${settings.next_chat_min_seconds}–${settings.next_chat_max_seconds}s`;
+}
+function renderShowControl() {
+  const snap = state.show.snapshot;
+  const locked = !!snap?.active || state.show.pending;
+  const form = document.getElementById("show-mode-form");
+  for (const element of form.querySelectorAll("input,select,button")) element.disabled = locked;
+  if (!locked) {
+    updateFirstMessageControls("show");
+    for (const id of ["show-timeout-min","show-timeout-max"]) document.getElementById(id).disabled = !document.getElementById("show-auto-skip").checked;
+  }
+  setBrowserRunPending(state.browserRunPending);
+  const pill = document.getElementById("show-status-pill");
+  pill.textContent = snap?.active ? "Active" : "Stopped";
+  pill.className = snap?.active ? "pill running" : "pill stopped";
+  const renderKey = JSON.stringify([snap?.browsers, state.show.pending, state.show.known, state.show.dirty, state.show.revision]);
+  if (state.show.renderKey === renderKey) return;
+  state.show.renderKey = renderKey;
+  const box = document.getElementById("show-sessions"); box.replaceChildren();
+  for (const browser of snap?.browsers || []) {
+    const card = document.createElement("article"); card.className = "show-session-card";
+    for (const text of [`${browser.profile} · Account: ${browser.account || "Waiting for login"}`, `Status: ${browser.status} — ${browser.detail}`, browser.decision ? `This conversation: ${browser.decision}` : "", browser.message_mode ? `Running message mode: ${browser.message_mode}` : "", showSettingsSummary(browser.settings), browser.blocked_by ? `Account in use by ${browser.blocked_by}` : ""]) {
+      if (!text) continue;
+      const p = document.createElement("p");p.textContent = text;card.append(p);
+    }
+    const start = document.createElement("button");start.type = "button";start.className = "primary-button";start.textContent = "Start Show Chat";
+    start.disabled = !state.show.known || state.show.dirty || state.show.pending || browser.status !== "ready" || !!browser.blocked_by;
+    start.addEventListener("click", () => controlShowChat(browser.id,true));
+    const stop = document.createElement("button");stop.type = "button";stop.className = "secondary-button";stop.textContent = "Stop Show Chat";
+    stop.disabled = state.show.pending || !["starting","running","stopping"].includes(browser.status);
+    stop.addEventListener("click", () => controlShowChat(browser.id,false));
+    const actions = document.createElement("div");actions.className = "show-session-actions";actions.append(start,stop);card.append(actions);box.append(card);
+  }
+  if (!snap?.browsers?.length) {const p = document.createElement("p");p.textContent = "No Show browser open. Save settings, then Open Browser / Login.";box.append(p);}
+}
+async function controlShowChat(id,start) {
+  const status = document.getElementById("show-control-status");
+  if (state.show.pending) return;
+  if (start && (state.show.dirty || !state.show.known)) {status.textContent = "Save settings and refresh status before Start.";return;}
+  state.show.pending = true;renderShowControl();
+  try {
+    if (start) await invoke("StartShowChat", id, state.show.revision);
+    else await invoke("StopShowChat", id);
+    await refreshShowControl();
+  } catch (error) {status.textContent = error.message || String(error);}
+  finally {state.show.pending = false;renderShowControl();}
 }

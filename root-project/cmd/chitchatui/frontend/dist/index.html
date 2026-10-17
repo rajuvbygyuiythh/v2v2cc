@@ -38,8 +38,10 @@
 
       <div class="sidebar-footer">
         <div class="status-row">
-          <span class="status-label">Bot</span>
+          <span class="status-label">Standard Bot</span>
           <span id="running-pill" class="pill stopped">Stopped</span>
+        </div>
+        <div class="status-row"><span class="status-label">Show Chat</span><span id="show-status-pill" class="pill stopped">Stopped</span>
         </div>
       </div>
     </aside>
@@ -55,8 +57,8 @@
             <button id="clean-profiles" class="secondary-button">Clean</button>
             <button id="refresh-state" class="secondary-button">Refresh</button>
             <button id="clear-logs" class="secondary-button" title="Clear stored UI history only; logs.txt is kept.">Clear Logs</button>
-            <button id="stop-bot" class="secondary-button">Stop</button>
-            <button id="start-bot" class="primary-button">Start Bot</button>
+            <button id="stop-bot" class="secondary-button">Stop Standard Bot</button>
+            <button id="start-bot" class="primary-button">Start Standard Bot</button>
           </div>
         </header>
 
@@ -272,27 +274,14 @@
           <div id="browser-status" role="status" aria-live="polite">Status: Ready</div>
           <div class="hint-text">
             Run uses these values and remembers them automatically. Each run opens 1–5 fresh browsers;
-            login capture does not start the chat bot. After login is saved, the browser closes.
+            Rod / ChromeDP close after login capture. Show Mode stays open, with chat OFF until Start Show Chat.
             Leave Headless off for manual login. Status below shows the latest fresh-browser activity.
           </div>
         </form>
-      </section>
-
-      <section class="tab-panel" data-panel="setting">
-        <header class="panel-header">
-          <div>
-            <h1>Setting</h1>
-            <p>Independent timing profiles. Save, then restart the corresponding mode to apply.</p>
-          </div>
-        </header>
-
-        <nav class="settings-tabs" aria-label="Timing profiles">
-          <button type="button" class="secondary-button" data-settings-tab="show" aria-pressed="true">Show Mode — Browser Chat</button>
-          <button type="button" class="secondary-button" data-settings-tab="standard" aria-pressed="false">Standard Bot — Start Bot</button>
-        </nav>
-        <div id="settings-show">
+        <div id="settings-show" class="show-workspace">
           <h2>Show Mode — Browser Chat</h2>
-          <p>Only Browser → 03 Show Mode. Rod / ChromeDP login capture is unaffected. Reply delay does not delay the opening greeting.</p>
+          <p><strong>1. Save settings → 2. Open browser &amp; log in → 3. Start Show Chat</strong></p>
+          <p>Login alone never starts automation. Start Show Chat loads saved settings. Stop cancels chat actions but keeps the browser open.</p>
           <form id="show-mode-form" class="form-grid two-column">
             <fieldset class="first-message-settings">
               <legend>Who sends the first message?</legend>
@@ -309,7 +298,7 @@
                 </div>
                 <p>Separate from the no-reply timeout after a bot send. On timeout, skip the current chat and use the next-chat wait.</p>
               </div>
-              <p>If the partner has already written, reply to that message instead of adding an unsolicited opener. Save and restart this mode to apply.</p>
+              <p>Old messages present before Start are ignored. In an existing chat, wait for a new partner message; new matches use your selected first-message rule. Stop Show Chat before editing, then Save and Start again.</p>
             </fieldset>
             <label><span>Reply delay min seconds</span><input id="reply-delay-min" type="number" min="0" max="86400" required></label>
             <label><span>Reply delay max seconds</span><input id="reply-delay-max" type="number" min="0" max="86400" required></label>
@@ -320,12 +309,30 @@
             <label><span>Next chat wait min seconds</span><input id="show-next-min" type="number" min="0" max="86400" required></label>
             <label><span>Next chat wait max seconds</span><input id="show-next-max" type="number" min="0" max="86400" required></label>
             <div class="form-actions"><button type="submit" class="primary-button">Save Show Mode Settings</button></div>
-            <p id="show-save-status" role="status" aria-live="polite">Saved values apply to the next Show Mode run.</p>
+            <p id="show-save-status" role="status" aria-live="polite">Save settings before Start Show Chat. No browser restart required.</p>
           </form>
+        <h3>2. Open browser and log in</h3>
+        <p>Profile and Count above apply to opening browsers. Show Mode is always visible; login does not start chat.</p>
+        <div id="show-launch-controls"></div>
+        <h3>3. Start / Stop each logged-in browser</h3>
+        <button type="button" id="refresh-show-control" class="secondary-button">Refresh Show Status</button>
+        <p id="show-control-status" role="status" aria-live="polite">Loading browser status…</p>
+        <div id="show-sessions" aria-label="Show Mode browsers"></div>
         </div>
-        <div id="settings-standard" hidden>
+      </section>
+
+      <section class="tab-panel" data-panel="setting">
+        <header class="panel-header">
+          <div>
+            <h1>Setting</h1>
+            <p>Standard Bot settings only. Show Mode has its own settings and Start/Stop controls in Browser.</p>
+          </div>
+        </header>
+
+        <p>Show Mode controls have moved to Browser. <button type="button" id="manage-show-settings" class="secondary-button">Manage Show Mode in Browser</button></p>
+        <div id="settings-standard">
         <h2>Standard Bot — Start Bot</h2>
-        <p>Only Home → Start Bot workers. These values do not control Show Mode.</p>
+        <p>Only Home → Start Standard Bot workers. These values do not control Show Mode.</p>
         <form id="general-form" class="form-grid two-column">
           <fieldset class="first-message-settings">
               <legend>Who sends the first message?</legend>

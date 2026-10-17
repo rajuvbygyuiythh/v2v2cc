@@ -17,6 +17,7 @@ import (
 )
 
 type Config struct {
+	AcquireAutomation    func(string) (func(), error)
 	firstIncomingID      string
 	FirstMessage         model.FirstMessageSettings
 	firstIncoming        *model.Message
@@ -98,6 +99,13 @@ func Run(ctx context.Context, cfg Config) error {
 	currentUserID := currentUserIDFromLogin(login)
 	if currentUserID == "" {
 		return fmt.Errorf("could not detect current bot user ID from %s; log in again so user_id can be saved", p.LoginInfo)
+	}
+	if cfg.AcquireAutomation != nil {
+		release, err := cfg.AcquireAutomation(currentUserID)
+		if err != nil {
+			return err
+		}
+		defer release()
 	}
 	if err := registerBotUser(cfg, currentUserID); err != nil {
 		return err

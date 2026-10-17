@@ -33,3 +33,24 @@ export function StartBot():Promise<void>;
 export function StopBot():Promise<void>;
 
 export function SaveShowModeSettings(arg1:model.ShowModeSettings):Promise<void>;
+
+export interface ShowBrowserView {
+  id: string;
+  profile: string;
+  account: string;
+  status: string;
+  detail: string;
+  decision: string;
+  message_mode: string;
+  blocked_by?: string;
+  settings?: model.ShowModeSettings;
+}
+export interface ShowControlState {
+  revision: number;
+  settings: model.ShowModeSettings;
+  active: boolean;
+  browsers: Array<ShowBrowserView>;
+}
+export function GetShowControlState():Promise<ShowControlState>;
+export function StartShowChat(arg1:string,arg2:number):Promise<void>;
+export function StopShowChat(arg1:string):Promise<void>;
