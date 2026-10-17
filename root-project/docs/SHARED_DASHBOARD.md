@@ -1,81 +1,67 @@
-# Simplified dashboard and genuinely shared settings
+# Simplified dashboard: three Show Mode timing settings
 
-Owner decision, 2026-10-18: one shared Settings form, not two mode-specific copies
-of the same form. This explicitly supersedes the previous independent-profile
-requirement. Engines, drivers, auth, proxy, license and AI decisions are unchanged.
+Current owner decision, 2026-10-18: Show Mode has **only three timing groups**:
 
-## Everyday flow
+1. **Reply delay** — wait after detecting a user message before responding.
+2. **Next chat wait** — wait after a skip/end before starting the next chat.
+3. **User silent timeout** — one finite range used both before the first user SMS
+   and throughout an active conversation. Silence always triggers auto skip.
 
-1. **Settings:** choose an existing profile on first setup, review values, Save.
-2. **Messages:** choose the message engine/content and save when needed.
-3. **Browser:** open a Show Mode browser and complete login manually.
-4. **Home:** choose Show Mode and Start the appropriate logged-in browser. Or
-   select Standard Bot and use its Start/Stop controls for background workers.
+Each group retains Min/Max seconds. Equal values mean a fixed duration. Reply and
+next-chat waits may be zero. Silent timeout must be at least one second. There is
+no separate first-message timeout, random/bot-first selector, Wait indefinitely,
+or Auto Skip ON/OFF control. This supersedes earlier screenshots/instructions.
 
-Switching the Home mode changes the view only. It does not start/stop a running
-mode. Both mode status pills remain visible. Standard view never presents the
-Show transcript as Standard data. Home's More menu contains refresh, UI-log
-clear and profile cleanup (destructive cleanup now asks for confirmation).
-Four main activity counters are visible; additional counters remain in More
-activity. Diagnostics and timing are collapsed until requested. Advanced AI
-configuration and mode-specific timing controls are also collapsed by default.
+## Behavior
 
-## What is shared
+On a new match, Show uses the message engine's normal bot opener. If the partner
+already wrote, reply to the incoming row instead. Pre-Start history stays ignored;
+starting in an old conversation waits for a new user SMS, with the same finite
+silent timeout instead of waiting forever. Existing legacy first-turn/random/
+skip-disabled settings cannot secretly re-enable those removed Show behaviors.
 
-One form and one Save persist:
+The silent timer is armed at chat readiness, including when the engine returns no
+opener. A detected incoming row clears the idle wait before queueing its reply.
+The timer is rearmed after confirmed bot sends (last follow-up wins), or after
+reply processing finishes with no output. Pending replies and follow-up sleeps
+are not interrupted even if they exceed the configured idle timeout. A late
+incoming row still wins the final pre-skip recheck. Partner changes discard the
+old timer. Stop cancels pending actions; unconfirmed sends remain safely paused,
+not automatically resent or blindly skipped. No DOM selector/retry/driver change.
 
-| Common setting | Standard engine view | Show runner view |
-|---|---|---|
-| First-message rule/probability/first timeout | FirstMessage | FirstMessage |
-| Reply delay range | ReplyDelay* | ReplyDelay* |
-| No-reply timeout range | MatchReplyTimeout* | NoReply* |
-| Next-chat wait range | MatchCloseWait* | NextChat* |
+Default migration for an old disabled zero Show idle range is 60–60 seconds.
+Nonzero saved idle ranges, reply delays and next-chat waits remain unchanged.
+Actual normalized run settings are frozen at Start and appear in diagnostics.
 
-Mode-specific controls in Advanced: Standard polling/action intervals and Show
-Auto Skip. The no-reply **range** is shared; Show's enable/disable switch is not
-applied to the Standard engine. Standard DMs retain their existing non-disconnect
-behavior, and first-turn decisions remain per conversation. Equal numbers do not
-make these engines identical or redefine their native delivery semantics.
+## Dashboard and saved data
 
-## Existing data and persistence
+- Home: contextual Show/Standard Start/Stop, chat and collapsed diagnostics.
+- Browser: launch/login only. Login does not automatically start chatting.
+- Settings: one form and one Save for the three shared timing ranges.
+- Advanced: Standard polling/action intervals only, not additional Show controls.
+- Mode switching changes the view only, never starts/stops an engine.
 
-`GetChatSettings` returns both legacy candidates until setup. The UI requires an
-explicit Standard Bot or Show Mode choice; nothing is silently averaged or chosen
-by the backend. Selecting a candidate is only a draft; old values remain saved
-until Save. The chosen common values become both modes' settings. Standard's
-poll/action values and Show's Auto Skip are preserved whichever candidate is
-chosen. If a disabled Show timeout was zero, the UI retains the existing positive
-Standard timeout, visibly shown for review, because Standard requires one.
+First setup still explicitly chooses existing Standard or Show **timing values**;
+selection is a draft until Save. Standard's stored first-turn policy is preserved,
+not copied from Show or reset by saving these three timings. Standard engine logic
+(including DM behavior) is unchanged. The shared no-reply numeric range still
+maps to Standard MatchReplyTimeout and Show NoReply; next wait maps to Standard
+MatchCloseWait and Show NextChat. These are shared values, not identical engines.
 
-One Badger transaction writes the two existing engine-compatible settings records
-and `settings/chat_shared/v1`. No new database or dependency. Keeping compatible
-records lets engines read their original structures without changing chat logic.
-After the marker is set, **legacy SaveGeneralSettings and SaveShowModeSettings
-also synchronize common fields**, atomically, instead of reintroducing divergent
-profiles. Before setup their prior behavior is retained for compatibility.
-Validation failures commit neither record nor marker. Reopening preserves sharing.
-The migration is intentionally not an automatic rollback facility: after explicit
-Save the selected common values replace both old profiles. Back up your existing
-local data before installing a new build if you need those older values later.
+The existing UI-store records and sharing marker commit atomically, without new
+dependencies/databases. Legacy setters keep the timing ranges synchronized after
+shared setup. Legacy first-turn/auto-skip JSON fields remain for old-client/data
+compatibility but are not independent controls for managed Show. New dashboard
+saves do not send an auto-skip choice; the backend forces it on. Save rejects either
+running mode or draining ownership. A successful Save invalidates stale Start
+revisions. Back up existing local data before upgrading if older values are needed.
 
-Shared Save and legacy setters (after setup) reject changes while either mode is
-running, a Show run is draining, or worker ownership remains after cancellation.
-StartBot's transition to running is serialized with shared Save through showMu;
-no settings can slip between its idle check and setting the running flag. Each
-Show Start still freezes actual settings/revision, and diagnostics retain that
-snapshot after Stop. A new shared Save increments the Show revision, so a stale
-Start request is rejected. No browser restart is required merely to save settings.
+## Verification
 
-## Source and verification
-
-- `chat_settings.go`: Wails helper and idle/drain guards; wrappers in `app.go`.
-- `internal/uistore/chat_settings.go`: mapping, validation, atomic persistence.
-- `internal/model/ui.go`: ChatSettings DTO. No chat engine modifications.
-- Frontend dist HTML/JS/CSS: unified form, Home mode view, collapsed details,
-  draft/stale-request protection and responsive consistent dark styling.
-- Tests: shared store migration/rollback/reopen/legacy/concurrency, App run guards,
-  and UI single-form/save/migration/draft/lock/stale/validation/control behavior.
-
-Node synthetic tests and isolated Go race/vet/Windows compilation are evidence,
-not native acceptance. Original-module release verification may remain BLOCKED
-in this sandbox; no real browser/account/login or native desktop run is implied.
+Targeted tests cover initial silence with ignored history, empty opener/reply,
+mid-conversation silence, expired-timer incoming priority, reply/follow-up waits
+longer than the silent timeout, configured next-chat delay, Stop cancellation,
+legacy-switch normalization, Standard policy preservation, exactly three visible
+Show timing groups and absence of retired controls. Earlier lifecycle/storage/
+diagnostics protections remain tested. Synthetic/isolated evidence does not prove
+native Windows/live-account acceptance; no real browser/login run is implied.

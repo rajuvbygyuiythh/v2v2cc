@@ -10,10 +10,9 @@ import (
 const keyChatUnified = "settings/chat_shared/v1"
 
 func sharedShow(g model.GeneralSettings, auto bool) model.ShowModeSettings {
-	return model.ShowModeSettings{FirstMessage: g.FirstMessage, ReplyDelayMinSeconds: g.ReplyDelayMinSeconds, ReplyDelayMaxSeconds: g.ReplyDelayMaxSeconds, AutoSkip: auto, NoReplyMinSeconds: g.MatchReplyTimeoutMinSeconds, NoReplyMaxSeconds: g.MatchReplyTimeoutMaxSeconds, NextChatMinSeconds: g.MatchCloseWaitMinSeconds, NextChatMaxSeconds: g.MatchCloseWaitMaxSeconds}
+	return model.ShowModeSettings{FirstMessage: g.FirstMessage, ReplyDelayMinSeconds: g.ReplyDelayMinSeconds, ReplyDelayMaxSeconds: g.ReplyDelayMaxSeconds, AutoSkip: auto, NoReplyMinSeconds: g.MatchReplyTimeoutMinSeconds, NoReplyMaxSeconds: g.MatchReplyTimeoutMaxSeconds, NextChatMinSeconds: g.MatchCloseWaitMinSeconds, NextChatMaxSeconds: g.MatchCloseWaitMaxSeconds}.ThreeTimings()
 }
 func commonFromShow(g model.GeneralSettings, s model.ShowModeSettings) model.GeneralSettings {
-	g.FirstMessage = s.FirstMessage
 	g.ReplyDelayMinSeconds = s.ReplyDelayMinSeconds
 	g.ReplyDelayMaxSeconds = s.ReplyDelayMaxSeconds
 	g.MatchReplyTimeoutMinSeconds = s.NoReplyMinSeconds

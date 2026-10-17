@@ -155,6 +155,7 @@ func (a *App) GetInitialState() (model.UISnapshot, error) {
 	}
 
 	showSettings, err := a.uiStore.LoadShowModeSettings()
+	showSettings = showSettings.ThreeTimings()
 	if err != nil {
 		return model.UISnapshot{}, err
 	}

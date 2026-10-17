@@ -1,3 +1,9 @@
+> Current Show settings: only Reply delay, Next chat wait and User silent timeout.
+> First-turn events are observations, not editable first-message controls. The
+> same NO_REPLY timer now covers initial and ongoing user silence. See
+> [SHARED_DASHBOARD.md](SHARED_DASHBOARD.md); historical first-wait control
+> references below apply only to legacy runner test paths.
+
 # Home: live settings and timing diagnostics (Show Mode)
 
 The Home page keeps **Diagnostics & timing** collapsed by default. Open Details

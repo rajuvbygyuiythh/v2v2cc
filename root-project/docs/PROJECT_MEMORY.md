@@ -9,10 +9,10 @@ after every meaningful change** (newest last). Never rewrite old entries.
 <!-- AUTO:BEGIN -->
 _Auto status 2026-10-17. Do not edit this block by hand._
 
-- Source fingerprint: `1aba52df0357b4dd…`
+- Source fingerprint: `b3f1870262e5b4bd…`
 - Browser options: `rod`, `chromedp`, `show_mode`
 - Capture tool: v1.2.1
-- Last verification: **BLOCKED** (PASS 3, FAIL 0, BLOCKED 10) — BLOCKED is not PASS; see `verification-output/report.json`
+- Last verification: no report found yet (`npm run verify`)
 <!-- AUTO:END -->
 
 ## Decision log
@@ -331,3 +331,19 @@ license, proxy or dependency changes.
   source as root-project-shared-dashboard-UNVERIFIED.zip, including verification
   report/checksums, excluding runtime/private data, profiles, caches and binaries.
   Native Windows/live-browser acceptance remains NOT_RUN; full gate BLOCKED.
+
+- 2026-10-18 — Owner requested exactly three Show timing groups: reply delay,
+  next-chat wait and one user-silent timeout for initial/ongoing chat. Removed
+  first-turn/random/indefinite-wait and Auto Skip switches from the dashboard.
+  Managed Show uses a normal opener and always-enabled finite idle skip; a zero
+  legacy idle range becomes 60–60s. Empty opener/reply paths now arm/rearm idle
+  timing; pending replies/follow-ups and unconfirmed-send pauses are protected.
+  New saves preserve Standard's stored first policy; legacy Show saves no longer
+  overwrite it. Added targeted model/runner/UI/App tests and updated prior
+  first-policy manager tests to the new contract. Drivers/auth/proxy/AI/license,
+  message-engine reply generation and dependencies/installers unchanged. Native Windows/live-site
+  acceptance NOT_RUN; prior published ZIP predates this change. No new push was
+  requested for this step. See SHARED_DASHBOARD.md.
+- 2026-10-18 — Owner authorized publishing the three-timing Show fix. Preparing
+  root-project-three-timings-UNVERIFIED.zip with current source and verification
+  evidence; native Windows/live-account acceptance remains NOT_RUN.

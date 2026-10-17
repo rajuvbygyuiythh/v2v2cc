@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ChitChat Bot</title>
-  <link rel="stylesheet" href="./styles.css?v=3">
+  <link rel="stylesheet" href="./styles.css?v=4">
 </head>
 <body>
   <div id="license-overlay" class="license-overlay" style="display: none;">
@@ -314,32 +314,14 @@
             <select id="settings-source"><option value="">Choose a profile…</option><option value="standard">Standard Bot</option><option value="show">Show Mode</option></select>
             <p id="settings-migration-summary" class="summary-text"></p>
           </div>
-          <fieldset class="first-message-settings">
-              <legend>Who sends the first message?</legend>
-              <label><span>First-message mode</span><select id="standard-first-mode">
-                <option value="bot">Bot first</option><option value="user">User first</option><option value="random">Random</option>
-              </select></label>
-              <div id="standard-first-percent-row" hidden><label><span>Bot first chance (%)</span><input id="standard-first-percent" type="number" min="0" max="100" step="1" value="70" required></label>
-                <p>Probability per new conversation, not a fixed quota. 0% = user first; 100% = bot first.</p></div>
-              <div id="standard-first-wait-row" hidden>
-                <label><span>Wait for the user's first message</span><select id="standard-first-wait"><option value="unlimited">Wait indefinitely</option><option value="skip">Skip after timeout</option></select></label>
-                <div id="standard-first-timeout-row" class="first-timeout-range" hidden>
-                  <label><span>First-message timeout min seconds</span><input id="standard-first-min" type="number" min="1" max="86400" step="1" value="30" required></label>
-                  <label><span>First-message timeout max seconds</span><input id="standard-first-max" type="number" min="1" max="86400" step="1" value="60" required></label>
-                </div>
-                <p>For new matches. Standard DMs keep waiting instead of disconnecting.</p>
-              </div>
-              <p>If the partner has already written, reply to that message instead of adding an unsolicited opener. Applies to both modes on the next Start.</p>
-            </fieldset>
           <div class="shared-timing-grid">
             <fieldset class="timing-pair"><legend>Reply delay</legend><label><span>Min (seconds)</span><input id="worker-reply-delay-min" type="number" min="0" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="worker-reply-delay-max" type="number" min="0" max="86400" step="1" required></label></fieldset>
-            <fieldset class="timing-pair"><legend>No-reply timeout</legend><label><span>Min (seconds)</span><input id="match-reply-timeout-min" type="number" min="1" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="match-reply-timeout-max" type="number" min="1" max="86400" step="1" required></label></fieldset>
             <fieldset class="timing-pair"><legend>Next chat wait</legend><label><span>Min (seconds)</span><input id="match-close-wait-min" type="number" min="0" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="match-close-wait-max" type="number" min="0" max="86400" step="1" required></label></fieldset>
+            <fieldset class="timing-pair"><legend>User silent timeout</legend><label><span>Min (seconds)</span><input id="match-reply-timeout-min" type="number" min="1" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="match-reply-timeout-max" type="number" min="1" max="86400" step="1" required></label></fieldset>
           </div>
-          <p class="summary-text">Timeout starts after a bot reply. Standard Bot uses it for idle matches; Show Mode uses it only when Auto Skip is on.</p>
-          <details class="advanced-settings"><summary>Advanced · mode-specific options</summary>
+          <p class="summary-text">Show Mode uses the same silent timeout before the first user message and throughout the conversation. Auto skip is always on; pending replies are never interrupted.</p>
+          <details class="advanced-settings" hidden><summary>Advanced · Standard Bot only</summary>
             <div class="advanced-content">
-              <h3>Show Mode</h3><label class="checkbox-row"><input id="show-auto-skip" type="checkbox"> Auto Skip when the partner does not reply</label>
               <h3>Standard Bot</h3><div class="shared-timing-grid"><fieldset class="timing-pair"><legend>Polling interval</legend><label><span>Min (seconds)</span><input id="poll-min" type="number" min="1" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="poll-max" type="number" min="1" max="86400" step="1" required></label></fieldset><fieldset class="timing-pair"><legend>Action interval</legend><label><span>Min (seconds)</span><input id="action-min" type="number" min="1" max="86400" step="1" required></label><label><span>Max (seconds)</span><input id="action-max" type="number" min="1" max="86400" step="1" required></label></fieldset></div>
             </div>
           </details>
@@ -349,6 +331,6 @@
     </main>
   </div>
 
-  <script src="./app.js?v=3"></script>
+  <script src="./app.js?v=4"></script>
 </body>
 </html>

@@ -19,29 +19,29 @@ const change=(w,d,id,value)=>{d.getElementById(id).value=value;d.getElementById(
 test('one common form; Home has controls and Browser has login only',async()=>{
  const {dom,w,d}=await setup();assert.equal(d.querySelectorAll('#general-form').length,1);assert.equal(d.querySelector('#show-mode-form'),null);assert.equal(d.querySelector('#show-first-mode'),null);
  assert.equal(d.querySelector('#general-form').closest('[data-panel]').dataset.panel,'setting');assert.equal(d.querySelector('#settings-show').closest('[data-panel]').dataset.panel,'home');
- assert.equal(d.querySelector('#diagnostic-details').open,false);assert.equal(d.querySelector('.advanced-settings').open,false);
- assert.equal(d.getElementById('settings-show').hidden,false);change(w,d,'workspace-mode','standard');assert.equal(d.getElementById('settings-show').hidden,true);assert.equal(d.getElementById('standard-actions').hidden,false);
+ assert.equal(d.querySelector('#diagnostic-details').open,false);assert.equal(d.querySelector('.advanced-settings').open,false);assert.equal(d.querySelector('.advanced-settings').hidden,true);
+ assert.equal(d.getElementById('settings-show').hidden,false);change(w,d,'workspace-mode','standard');assert.equal(d.getElementById('settings-show').hidden,true);assert.equal(d.getElementById('standard-actions').hidden,false);assert.equal(d.querySelector('.advanced-settings').hidden,false);
  d.querySelector('[data-open-tab="setting"]').click();assert.equal(d.querySelector('[data-panel="setting"]').classList.contains('active'),true);dom.window.close();
 });
-test('one Save sends common first/timings and mode-specific options atomically',async()=>{
- const {dom,w,d,calls}=await setup();await w.saveSharedSettings();assert.equal(calls.length,1);const payload=calls[0][1];assert.equal(calls[0][0],'save');assert.equal(payload.general.reply_delay_min_seconds,3);assert.equal(payload.general.first_message.mode,'user');assert.equal(payload.general.poll_min_seconds,1);assert.equal(payload.show_auto_skip,true);assert.match(d.getElementById('standard-save-status').textContent,/both modes/);dom.window.close();
+test('one Save sends three shared timings, preserves Standard policy, and enables Show skip',async()=>{
+ const {dom,w,d,calls}=await setup();await w.saveSharedSettings();assert.equal(calls.length,1);const payload=calls[0][1];assert.equal(calls[0][0],'save');assert.equal(payload.general.reply_delay_min_seconds,3);assert.equal(payload.general.first_message.mode,'user');assert.equal(payload.general.poll_min_seconds,1);assert.equal('show_auto_skip' in payload,false);assert.match(d.getElementById('standard-save-status').textContent,/both modes/);dom.window.close();
 });
 test('first setup requires explicit profile choice and preserves mode-specific values',async()=>{
  const {dom,w,d,calls}=await setup(false);assert.equal(d.getElementById('settings-migration').hidden,false);await w.saveSharedSettings();assert.equal(calls.length,0);assert.match(d.getElementById('standard-save-status').textContent,/Choose/);
- change(w,d,'settings-source','show');assert.equal(d.getElementById('worker-reply-delay-min').value,'7');assert.equal(d.getElementById('standard-first-mode').value,'random');assert.equal(d.getElementById('poll-min').value,'1');
- change(w,d,'settings-source','standard');assert.equal(d.getElementById('worker-reply-delay-min').value,'3');assert.equal(d.getElementById('show-auto-skip').checked,true);await w.saveSharedSettings();assert.equal(calls.length,1);assert.equal(d.getElementById('settings-migration').hidden,true);dom.window.close();
+ change(w,d,'settings-source','show');assert.equal(d.getElementById('worker-reply-delay-min').value,'7');assert.equal(d.getElementById('standard-first-mode'),null);assert.equal(d.getElementById('poll-min').value,'1');
+ change(w,d,'settings-source','standard');assert.equal(d.getElementById('worker-reply-delay-min').value,'3');assert.equal(d.getElementById('show-auto-skip'),null);await w.saveSharedSettings();assert.equal(calls.length,1);assert.equal(d.getElementById('settings-migration').hidden,true);dom.window.close();
 });
-test('invalid ranges, timeout, probability and first-wait cannot reach backend',async()=>{
+test('invalid reply/idle ranges and zero silence timeout cannot reach backend',async()=>{
  const {dom,w,d,calls}=await setup();
- for(const [id,value,pattern] of [['worker-reply-delay-min',99,/min/],['match-reply-timeout-min',0,/at least 1/],['standard-first-percent',101,/0 to 100/]]) {
+ for(const [id,value,pattern] of [['worker-reply-delay-min',99,/min/],['match-reply-timeout-min',0,/at least 1/],['match-close-wait-min',5,/min/]]) {
   w.fillSharedValues(general(),true);d.getElementById(id).value=value;await w.saveSharedSettings();assert.equal(calls.length,0);assert.match(d.getElementById('standard-save-status').textContent,pattern);
- }
- w.fillSharedValues(general(),true);change(w,d,'standard-first-wait','skip');d.getElementById('standard-first-min').value=0;await w.saveSharedSettings();assert.equal(calls.length,0);assert.match(d.getElementById('standard-save-status').textContent,/positive minimum/);dom.window.close();
+ }dom.window.close();
 });
-test('first-message control reveals only applicable fields',async()=>{
- const {dom,w,d}=await setup();change(w,d,'standard-first-mode','bot');assert.equal(d.getElementById('standard-first-wait-row').hidden,true);assert.equal(d.getElementById('standard-first-percent').disabled,true);
- change(w,d,'standard-first-mode','random');assert.equal(d.getElementById('standard-first-percent-row').hidden,false);change(w,d,'standard-first-wait','skip');assert.equal(d.getElementById('standard-first-min').disabled,false);
- change(w,d,'standard-first-mode','user');assert.equal(d.getElementById('standard-first-percent-row').hidden,true);dom.window.close();
+test('Show has exactly three timing groups and no first-turn or skip switch controls',async()=>{
+ const {dom,d}=await setup();
+ assert.deepEqual([...d.querySelectorAll('#general-form > .shared-timing-grid legend')].map(n=>n.textContent),['Reply delay','Next chat wait','User silent timeout']);
+ assert.equal(d.querySelectorAll('.first-message-settings').length,0);assert.equal(d.querySelector('[id*="first-mode"], [id*="first-wait"], #show-auto-skip'),null);
+ assert.match(d.querySelector('#general-form').textContent,/same silent timeout before the first user message/);dom.window.close();
 });
 test('dirty common settings block both Starts and Show browser launch; polling preserves draft',async()=>{
  const {dom,w,d,calls}=await setup();change(w,d,'worker-reply-delay-min',9);assert.equal(d.getElementById('start-bot').disabled,true);assert.equal(d.querySelector('#show-sessions .primary-button').disabled,true);

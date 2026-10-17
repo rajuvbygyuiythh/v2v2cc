@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// FirstMessageSettings is shared by both modes after dashboard shared setup;
-// each running conversation still owns its own first-turn decision.
+// FirstMessageSettings retains Standard's saved policy and Show's derived
+// opener/idle snapshot. Show no longer exposes editable first-turn controls.
 type FirstMessageSettings struct {
 	Mode            string `json:"mode"`
 	BotFirstPercent int    `json:"bot_first_percent"`

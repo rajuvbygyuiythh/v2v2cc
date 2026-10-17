@@ -1,3 +1,15 @@
+# Latest Show Mode simplification — three timing ranges only (2026-10-18)
+
+The owner removed first-turn/random/first-wait controls and the Auto Skip switch.
+Show has only Reply delay, Next chat wait and User silent timeout. One finite
+idle range covers both waiting for the first user SMS and ongoing conversation;
+managed Show always auto-skips a silent partner. Use the normal bot opener on a
+new match; already-present incoming wins, and pre-Start history is still ignored.
+No idle skip during pending reply/follow-up work or unconfirmed-send safety pause.
+Preserve Standard's stored first-turn policy; do not change driver/auth/proxy/AI.
+See the current `docs/SHARED_DASHBOARD.md`; older first-policy sharing notes below
+are historical and superseded by this explicit owner request.
+
 # Latest authorized dashboard/shared-settings change
 
 The owner explicitly selected **common settings truly shared across both modes**

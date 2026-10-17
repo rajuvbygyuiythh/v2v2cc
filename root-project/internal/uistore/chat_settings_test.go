@@ -131,7 +131,7 @@ func TestSharedLegacySettersCannotReintroduceDuplicateValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	g2, _ := s.LoadGeneralSettings()
-	if sharedShow(g2, false) != show || g2.PollMinSeconds != g.PollMinSeconds || g2.ActionMaxSeconds != g.ActionMaxSeconds {
+	if sharedShow(g2, false) != show.ThreeTimings() || g2.FirstMessage != g.FirstMessage || g2.PollMinSeconds != g.PollMinSeconds || g2.ActionMaxSeconds != g.ActionMaxSeconds {
 		t.Fatal("show save diverged/lost standard-only values")
 	}
 }

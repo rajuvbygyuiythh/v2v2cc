@@ -5,7 +5,11 @@ import (
 	"fmt"
 )
 
-func (a *App) getChatSettings() (model.ChatSettings, error) { return a.uiStore.LoadChatSettings() }
+func (a *App) getChatSettings() (model.ChatSettings, error) {
+	settings, err := a.uiStore.LoadChatSettings()
+	settings.ShowAutoSkip = true
+	return settings, err
+}
 func (a *App) chatSettingsIdleLocked() error {
 	a.mu.Lock()
 	running := a.running
@@ -29,6 +33,14 @@ func (a *App) saveChatSettings(settings model.ChatSettings) error {
 	if err := a.chatSettingsIdleLocked(); err != nil {
 		return err
 	}
+	// The removed Show first-turn controls must not silently rewrite Standard's
+	// existing policy when saving only the three timing ranges.
+	saved, err := a.uiStore.LoadGeneralSettings()
+	if err != nil {
+		return err
+	}
+	settings.General.FirstMessage = saved.FirstMessage
+	settings.ShowAutoSkip = true
 	if err := a.uiStore.SaveChatSettings(settings); err != nil {
 		return err
 	}

@@ -12,18 +12,18 @@ _Auto-generated 2026-10-17 by `scripts/project-map.cjs`. Do not edit this block 
 
 ## Source inventory
 
-- Total source files: **207** (1259.9 KiB, excluding runtime/private data)
+- Total source files: **207** (1262.1 KiB, excluding runtime/private data)
 
 | Area | Files | Size |
 |---|---:|---:|
-| `internal/` | 98 | 480.9 KiB |
-| `(root files)` | 30 | 235.9 KiB |
-| `capture/` | 25 | 114.3 KiB |
-| `docs/` | 17 | 101.0 KiB |
+| `internal/` | 98 | 482.6 KiB |
+| `(root files)` | 30 | 241.7 KiB |
+| `capture/` | 25 | 114.1 KiB |
+| `docs/` | 17 | 100.7 KiB |
 | `apitest/` | 12 | 99.3 KiB |
-| `cmd/` | 9 | 126.8 KiB |
-| `scripts/` | 8 | 40.3 KiB |
-| `tests/` | 8 | 61.4 KiB |
+| `cmd/` | 9 | 122.4 KiB |
+| `scripts/` | 8 | 40.1 KiB |
+| `tests/` | 8 | 61.2 KiB |
 
 ## Internal Go packages
 
@@ -130,3 +130,13 @@ Wails saves; `internal/uistore/chat_settings.go` synchronizes both engine record
 atomically, with an explicit first-setup profile choice. Poll/action and Show Auto
 Skip remain mode-specific. See [SHARED_DASHBOARD.md](SHARED_DASHBOARD.md), which
 supersedes older independent-profile/layout instructions after shared setup.
+
+## Current Show timing policy (2026-10-18)
+
+`model.ShowModeSettings.ThreeTimings()` derives managed Show's normal opener and
+always-enabled silence skip from the three configured ranges. `show_control.go`
+normalizes actual run snapshots; `live_chat.go` uses a unified idle timer for
+initial and ongoing silence, including empty engine output. The frontend exposes
+only reply delay, next-chat wait and user silent timeout. Standard's saved first
+policy is preserved; first-turn/random/wait/Auto Skip controls are retired.
+See [SHARED_DASHBOARD.md](SHARED_DASHBOARD.md).

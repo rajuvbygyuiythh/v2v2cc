@@ -51,6 +51,7 @@ func (a *App) showControlState() (ShowControlState, error) {
 	a.showMu.Lock()
 	defer a.showMu.Unlock()
 	settings, err := a.uiStore.LoadShowModeSettings()
+	settings = settings.ThreeTimings()
 	if err != nil {
 		return ShowControlState{}, err
 	}
@@ -74,6 +75,7 @@ func (a *App) showControlState() (ShowControlState, error) {
 	return result, nil
 }
 func (a *App) saveShowSettings(settings model.ShowModeSettings) error {
+	settings = settings.ThreeTimings()
 	a.showMu.Lock()
 	defer a.showMu.Unlock()
 	unified, err := a.uiStore.ChatSettingsUnified()
@@ -240,6 +242,7 @@ func (a *App) startShowChat(id string, revision uint64) error {
 		return fmt.Errorf("saved settings changed; refresh and review before starting")
 	}
 	settings, err := a.uiStore.LoadShowModeSettings()
+	settings = settings.ThreeTimings()
 	if err == nil {
 		err = uistore.ValidateShowModeSettings(settings)
 	}
@@ -317,7 +320,7 @@ func (a *App) executeShowChat(s *showBrowserSession, ctx context.Context, done c
 	observed, stopTranscript := a.startHomeChatObserverForRun(ctx, s.dom, s.view.Profile, 1, 1, diagnosticID)
 	defer stopTranscript()
 	min, max := showModeReplyDelayRange(settings)
-	r := &liveRunner{dom: observed, prefix: "[" + s.view.ID + "]", logf: a.log, newResponder: func() (liveResponder, string, error) { return a.newLiveResponderWithSettings(messages) }, firstMessage: settings.FirstMessage, replyDelayMin: min, replyDelayMax: max, replyDelayRNG: rand.New(rand.NewSource(time.Now().UnixNano())), autoSkip: settings.AutoSkip, noReplyMin: time.Duration(settings.NoReplyMinSeconds) * time.Second, noReplyMax: time.Duration(settings.NoReplyMaxSeconds) * time.Second, nextChatMin: time.Duration(settings.NextChatMinSeconds) * time.Second, nextChatMax: time.Duration(settings.NextChatMaxSeconds) * time.Second, pollInterval: 350 * time.Millisecond, initialBaseline: &baseline}
+	r := &liveRunner{unifiedIdle: true, dom: observed, prefix: "[" + s.view.ID + "]", logf: a.log, newResponder: func() (liveResponder, string, error) { return a.newLiveResponderWithSettings(messages) }, firstMessage: settings.FirstMessage, replyDelayMin: min, replyDelayMax: max, replyDelayRNG: rand.New(rand.NewSource(time.Now().UnixNano())), autoSkip: settings.AutoSkip, noReplyMin: time.Duration(settings.NoReplyMinSeconds) * time.Second, noReplyMax: time.Duration(settings.NoReplyMaxSeconds) * time.Second, nextChatMin: time.Duration(settings.NextChatMinSeconds) * time.Second, nextChatMax: time.Duration(settings.NextChatMaxSeconds) * time.Second, pollInterval: 350 * time.Millisecond, initialBaseline: &baseline}
 	r.onDiagnostic = func(event HomeDiagnosticEvent) { a.diagnostics.record(diagnosticID, event) }
 	r.onProgress = func(detail, decision string) {
 		a.showMu.Lock()

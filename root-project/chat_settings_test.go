@@ -11,7 +11,7 @@ func appSharedFixture() model.ChatSettings {
 	g := model.DefaultGeneralSettings()
 	g.ReplyDelayMinSeconds = 3
 	g.ReplyDelayMaxSeconds = 6
-	g.FirstMessage = model.FirstMessageSettings{Mode: "user"}
+	g.FirstMessage = model.DefaultGeneralSettings().FirstMessage
 	return model.ChatSettings{General: g, ShowAutoSkip: true}
 }
 func TestSharedSettingsRejectEitherRunningModeAndApplyAfterStop(t *testing.T) {
@@ -93,5 +93,25 @@ func TestSharedSettingsWaitsForCancelledWorkerOwnershipToDrain(t *testing.T) {
 	a.showMu.Unlock()
 	if err := a.SaveChatSettings(appSharedFixture()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestThreeTimingsSavePreservesStandardPolicyAndForcesShowSkip(t *testing.T) {
+	a := browserTestApp(t)
+	g := model.DefaultGeneralSettings()
+	g.FirstMessage = model.FirstMessageSettings{Mode: "user"}
+	if err := a.uiStore.SaveGeneralSettings(g); err != nil {
+		t.Fatal(err)
+	}
+	request := appSharedFixture()
+	request.General.FirstMessage = model.FirstMessageSettings{Mode: "random", BotFirstPercent: 0}
+	request.ShowAutoSkip = false
+	if err := a.SaveChatSettings(request); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := a.uiStore.LoadGeneralSettings()
+	show, _ := a.GetShowControlState()
+	if saved.FirstMessage != g.FirstMessage || !show.Settings.AutoSkip || show.Settings.FirstMessage.Mode != "bot" || show.Settings.FirstMessage.WaitMinSeconds != saved.MatchReplyTimeoutMinSeconds {
+		t.Fatal("removed controls still affect runtime/Standard", saved, show.Settings)
 	}
 }

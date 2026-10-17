@@ -177,6 +177,7 @@ type liveIncomingTrace struct {
 }
 
 type liveRunner struct {
+	unifiedIdle                                           bool // Show Mode uses one finite silence timeout for every stage.
 	lastCheckReason                                       string
 	onDiagnostic                                          func(HomeDiagnosticEvent)
 	firstWaitStarted, noReplyWaitStarted, nextWaitStarted time.Time
@@ -402,6 +403,9 @@ func (r *liveRunner) step(ctx context.Context) bool {
 		}
 		r.responder = responder
 		r.diagnostic(HomeDiagnosticEvent{Code: "CHAT_STARTED"})
+		if r.unifiedIdle {
+			r.armSilenceTimer()
+		}
 		r.logf("activity", fmt.Sprintf("%s CHAT STARTED | mode=%s history=%d observer=%t", r.prefix, mode, len(r.seenIDs), c.ObserverReady))
 		hasIncoming := false
 		for _, row := range snapshot.Messages {
@@ -453,7 +457,7 @@ func (r *liveRunner) step(ctx context.Context) bool {
 		}
 		r.firstWaiting = true
 		policy := r.firstMessage.Effective()
-		if policy.WaitTimeout {
+		if policy.WaitTimeout && !r.unifiedIdle {
 			armed := time.Now()
 			selected := policy.WaitDuration(r.replyDelayRNG)
 			r.firstWaitStarted = armed
@@ -563,6 +567,9 @@ func (r *liveRunner) step(ctx context.Context) bool {
 	if r.conversation != generation || r.responder == nil {
 		return false
 	}
+	if r.unifiedIdle && !r.paused && r.replyDeadline.IsZero() {
+		r.armSilenceTimer()
+	}
 	if end && !r.paused {
 		r.queue = nil
 		r.rotating = true
@@ -659,11 +666,7 @@ func (r *liveRunner) sendLines(ctx context.Context, lines []string) bool {
 			return false
 		}
 		if r.autoSkip {
-			armed := time.Now()
-			selected := chooseShowModeReplyDelay(r.replyDelayRNG, r.noReplyMin, r.noReplyMax)
-			r.noReplyWaitStarted = armed
-			r.replyDeadline = armed.Add(selected)
-			r.diagnostic(HomeDiagnosticEvent{Code: "NO_REPLY_ARMED", WaitKind: "no_reply", Metrics: map[string]float64{"selected_ms": milliseconds(selected), "configured_min_ms": milliseconds(r.noReplyMin), "configured_max_ms": milliseconds(r.noReplyMax)}})
+			r.armSilenceTimer()
 		}
 		r.progress("Send confirmed — waiting for partner", "")
 		r.logf("activity", r.prefix+" SEND CONFIRMED | new own message row observed")
@@ -799,4 +802,14 @@ func waitElapsed(start time.Time) map[string]float64 {
 		return nil
 	}
 	return map[string]float64{"timer_elapsed_ms": milliseconds(time.Since(start))}
+}
+
+// Called only on chat readiness or after reply work finishes. No idle timeout
+// is evaluated while queued replies, typing or follow-up waits are in progress.
+func (r *liveRunner) armSilenceTimer() {
+	armed := time.Now()
+	selected := chooseShowModeReplyDelay(r.replyDelayRNG, r.noReplyMin, r.noReplyMax)
+	r.noReplyWaitStarted = armed
+	r.replyDeadline = armed.Add(selected)
+	r.diagnostic(HomeDiagnosticEvent{Code: "NO_REPLY_ARMED", WaitKind: "no_reply", Metrics: map[string]float64{"selected_ms": milliseconds(selected), "configured_min_ms": milliseconds(r.noReplyMin), "configured_max_ms": milliseconds(r.noReplyMax)}})
 }

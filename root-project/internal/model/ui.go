@@ -68,13 +68,13 @@ type GeneralSettings struct {
 	ReplyDelayMaxSeconds        int                  `json:"reply_delay_max_seconds"`
 }
 
-// ShowModeSettings is the Show runner view; after shared setup its common
-// fields are synchronized with GeneralSettings in one transaction.
+// ShowModeSettings is the Show runner view. Three timing ranges are shared;
+// legacy first-turn/skip fields are derived for managed Show, not UI controls.
 type ShowModeSettings struct {
-	FirstMessage         FirstMessageSettings `json:"first_message"`
+	FirstMessage         FirstMessageSettings `json:"first_message"` // Legacy field; Show derives its fixed opener/idle rule.
 	ReplyDelayMinSeconds int                  `json:"reply_delay_min_seconds"`
 	ReplyDelayMaxSeconds int                  `json:"reply_delay_max_seconds"`
-	AutoSkip             bool                 `json:"auto_skip"`
+	AutoSkip             bool                 `json:"auto_skip"` // Legacy field; managed Show always enables silent-user skip.
 	NoReplyMinSeconds    int                  `json:"no_reply_min_seconds"`
 	NoReplyMaxSeconds    int                  `json:"no_reply_max_seconds"`
 	NextChatMinSeconds   int                  `json:"next_chat_min_seconds"`
@@ -272,4 +272,20 @@ type ChatSettings struct {
 	ShowAutoSkip bool             `json:"show_auto_skip"`
 	Unified      bool             `json:"unified"`
 	LegacyShow   ShowModeSettings `json:"legacy_show"`
+}
+
+// ThreeTimings ignores removed Show-only first-turn/auto-skip switches. Zero
+// legacy idle ranges (previously disabled) migrate to a finite 60 second timeout.
+// Standard Bot's persisted first-turn policy is deliberately not modified.
+func (s ShowModeSettings) ThreeTimings() ShowModeSettings {
+	if s.NoReplyMinSeconds == 0 && s.NoReplyMaxSeconds == 0 {
+		s.NoReplyMinSeconds = 60
+		s.NoReplyMaxSeconds = 60
+	}
+	s.AutoSkip = true
+	s.FirstMessage = DefaultFirstMessageSettings()
+	s.FirstMessage.WaitTimeout = true
+	s.FirstMessage.WaitMinSeconds = s.NoReplyMinSeconds
+	s.FirstMessage.WaitMaxSeconds = s.NoReplyMaxSeconds
+	return s
 }

@@ -307,7 +307,7 @@ test('diagnostic copy redacts identity/SMS/secret fields and fetches whole selec
 });
 test('clear diagnostic view targets one run only and never clears chat/logs', async()=>{
   let clears=0,events=[{code:'READY'}];const {dom,w,d}=setup({GetHomeDiagnostics:async()=>({selected:'run',runs:[{id:'run',settings:{first_message:{mode:'user'}},cleared:clears}],events}),ClearHomeDiagnostics:async id=>{assert.equal(id,'run');clears++;events=[];},ClearLogs:()=>assert.fail('cleared logs'),ClearLiveChat:()=>assert.fail('cleared chat')});
-  await w.refreshHomeDiagnostics();await w.clearHomeDiagnostics();assert.equal(clears,1);assert.match(d.querySelector('#diagnostic-note').textContent,/cleared/);assert.match(d.querySelector('#diagnostic-events').textContent,/No retained events/);assert.match(d.querySelector('#diagnostic-settings').textContent,/User first/);dom.window.close();
+  await w.refreshHomeDiagnostics();await w.clearHomeDiagnostics();assert.equal(clears,1);assert.match(d.querySelector('#diagnostic-note').textContent,/cleared/);assert.match(d.querySelector('#diagnostic-events').textContent,/No retained events/);assert.match(d.querySelector('#diagnostic-settings').textContent,/Run settings: Reply delay/);dom.window.close();
 });
 test('diagnostics support older backends and auto-scroll off preserves reading position', async()=>{
   const {dom,w,d}=setup();await w.refreshHomeDiagnostics();assert.match(d.querySelector('#diagnostic-note').textContent,/updated backend/);d.querySelector('#diagnostic-scroll').checked=false;const box=d.querySelector('#diagnostic-events');box.scrollTop=47;w.renderHomeDiagnostics({selected:'run',runs:[{id:'run'}],events:[{code:'READY'}]},'');assert.equal(box.scrollTop,47);dom.window.close();

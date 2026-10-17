@@ -690,3 +690,90 @@ func TestShowCancelledZeroDelayCannotSend(t *testing.T) {
 		t.Fatal("cancelled zero-delay send escaped")
 	}
 }
+
+// Current managed Show Mode: one silent timeout, no separate first-turn timer.
+func TestShowUnifiedSilenceCoversEmptyOpenerAndNoOutputReply(t *testing.T) {
+	a := browserTestApp(t)
+	fake := &fakeDOMBackend{controls: browser.DOMControls{HasInput: true, Buttons: []string{"SKIP"}}}
+	r := testLiveRunner(a, fake)
+	r.unifiedIdle = true
+	r.autoSkip = true
+	r.noReplyMin = 40 * time.Millisecond
+	r.noReplyMax = r.noReplyMin
+	r.newResponder = func() (liveResponder, string, error) { return detectOnlyResponder{}, "test", nil }
+	var armed []HomeDiagnosticEvent
+	r.onDiagnostic = func(e HomeDiagnosticEvent) {
+		if e.Code == "NO_REPLY_ARMED" {
+			armed = append(armed, e)
+		}
+		if e.Code == "FIRST_WAIT_ARMED" {
+			t.Error("separate first timeout still armed")
+		}
+	}
+	r.step(context.Background())
+	if r.replyDeadline.IsZero() || fake.totalSent() != 0 {
+		t.Fatal("empty opener left initial conversation without timeout")
+	}
+	// An incoming row wins even if the previous timer has already expired.
+	r.replyDeadline = time.Now().Add(-time.Millisecond)
+	fake.addRow("partner", "hi")
+	r.step(context.Background())
+	if fake.clickCount("SKIP") != 0 || !time.Now().Before(r.replyDeadline) {
+		t.Fatal("incoming/empty reply did not reset silence timer")
+	}
+	if len(armed) != 2 || armed[0].Metrics["selected_ms"] != 40 || armed[1].Metrics["selected_ms"] != 40 {
+		t.Fatal("first and ongoing timers used different configuration", armed)
+	}
+	r.replyDeadline = time.Now().Add(-time.Millisecond)
+	r.step(context.Background())
+	if fake.clickCount("SKIP") != 1 {
+		t.Fatal("ongoing silent conversation not skipped")
+	}
+}
+func TestShowUnifiedSilenceBeforeFirstSMSWithExistingHistory(t *testing.T) {
+	a := browserTestApp(t)
+	fake := &fakeDOMBackend{controls: browser.DOMControls{HasInput: true, Buttons: []string{"SKIP"}}}
+	fake.addRow("partner", "old history")
+	r := testLiveRunner(a, fake)
+	r.unifiedIdle = true
+	r.autoSkip = true
+	r.noReplyMin = time.Second
+	r.noReplyMax = time.Second
+	baseline, _ := fake.ReadDOMSnapshot(context.Background())
+	r.initialBaseline = &baseline
+	r.step(context.Background())
+	if fake.totalSent() != 0 || r.replyDeadline.IsZero() || !r.firstDeadline.IsZero() {
+		t.Fatal("history wait has no unified timeout or replayed history")
+	}
+	r.replyDeadline = time.Now().Add(-time.Millisecond)
+	r.step(context.Background())
+	if fake.clickCount("SKIP") != 1 {
+		t.Fatal("never received first SMS but did not skip")
+	}
+}
+
+type idleFollowupResponder struct{}
+
+func (idleFollowupResponder) Start() []string { return nil }
+func (idleFollowupResponder) Reply(string) ([]string, bool) {
+	return []string{"reply one", "reply two"}, false
+}
+func TestShowUnifiedSilenceDoesNotInterruptReplyAndFollowupWait(t *testing.T) {
+	a := browserTestApp(t)
+	fake := &fakeDOMBackend{controls: browser.DOMControls{HasInput: true, Buttons: []string{"SKIP"}}}
+	r := testLiveRunner(a, fake)
+	r.unifiedIdle = true
+	r.autoSkip = true
+	r.noReplyMin = 10 * time.Millisecond
+	r.noReplyMax = r.noReplyMin
+	r.replyDelayMin = 25 * time.Millisecond
+	r.replyDelayMax = r.replyDelayMin
+	r.newResponder = func() (liveResponder, string, error) { return idleFollowupResponder{}, "test", nil }
+	r.step(context.Background())
+	fake.addRow("partner", "new SMS")
+	before := time.Now()
+	r.step(context.Background())
+	if time.Since(before) < 45*time.Millisecond || fake.totalSent() != 2 || fake.clickCount("SKIP") != 0 || !time.Now().Before(r.replyDeadline) {
+		t.Fatal("idle timeout interrupted pending reply/followup or did not rearm after final confirmation")
+	}
+}

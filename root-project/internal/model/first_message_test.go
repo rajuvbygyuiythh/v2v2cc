@@ -44,3 +44,18 @@ func TestFirstMessageValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestShowThreeTimingsIgnoresRemovedSwitches(t *testing.T) {
+	legacy := ShowModeSettings{FirstMessage: FirstMessageSettings{Mode: "random", BotFirstPercent: 0}, AutoSkip: false, ReplyDelayMinSeconds: 3, ReplyDelayMaxSeconds: 6, NextChatMinSeconds: 1, NextChatMaxSeconds: 2, NoReplyMinSeconds: 30, NoReplyMaxSeconds: 60}
+	got := legacy.ThreeTimings()
+	if !got.AutoSkip || got.FirstMessage.Mode != "bot" || !got.FirstMessage.WaitTimeout || got.FirstMessage.WaitMinSeconds != 30 || got.FirstMessage.WaitMaxSeconds != 60 || got.ReplyDelayMinSeconds != 3 || got.NextChatMaxSeconds != 2 {
+		t.Fatal(got)
+	}
+	if legacy.FirstMessage.Mode != "random" || legacy.AutoSkip {
+		t.Fatal("mutated original settings")
+	}
+	zero := ShowModeSettings{}.ThreeTimings()
+	if zero.NoReplyMinSeconds != 60 || zero.NoReplyMaxSeconds != 60 {
+		t.Fatal("disabled legacy timeout remained indefinite")
+	}
+}

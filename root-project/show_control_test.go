@@ -74,7 +74,7 @@ func TestShowReadyDoesNotAutoChatAndExplicitStopKeepsBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-func TestShowSavedSettingsUserFirstDelayAndCancellation(t *testing.T) {
+func TestShowThreeTimingsDelayAndCancellation(t *testing.T) {
 	a := browserTestApp(t)
 	_ = a.SaveMessageSettings(model.NewMessageSettings("hello\nreply", ""))
 	settings := model.ShowModeSettings{FirstMessage: model.FirstMessageSettings{Mode: "user"}, ReplyDelayMinSeconds: 3, ReplyDelayMaxSeconds: 6}
@@ -84,19 +84,19 @@ func TestShowSavedSettingsUserFirstDelayAndCancellation(t *testing.T) {
 	fake := &fakeDOMBackend{controls: browser.DOMControls{HasInput: true, Buttons: []string{"SKIP"}}}
 	s := readyShow(t, a, fake, "account")
 	startShow(t, a, s.view.ID)
-	waitForLive(t, "user-first decision", func() bool { return showView(t, a, s.view.ID).Decision == "User first" })
+	waitForLive(t, "normal opener", func() bool { return fake.totalSent() == 1 })
 	view := showView(t, a, s.view.ID)
-	if view.Settings == nil || view.Settings.ReplyDelayMinSeconds != 3 || fake.totalSent() != 0 {
+	if view.Settings == nil || view.Settings.ReplyDelayMinSeconds != 3 || !view.Settings.AutoSkip || view.Settings.FirstMessage.Mode != "bot" || fake.totalSent() != 1 {
 		t.Fatal("saved settings not used or unsolicited opener")
 	}
 	fake.addRow("partner", "new message")
 	waitForLive(t, "configured delay", func() bool { return strings.Contains(showView(t, a, s.view.ID).Detail, "Reply pending") })
-	if fake.totalSent() != 0 {
+	if fake.totalSent() != 1 {
 		t.Fatal("reply delay bypassed")
 	}
 	before := time.Now()
 	_ = a.StopShowChat(s.view.ID)
-	if time.Since(before) > time.Second || fake.totalSent() != 0 {
+	if time.Since(before) > time.Second || fake.totalSent() != 1 {
 		t.Fatal("stop did not cancel pending reply")
 	}
 }
@@ -266,20 +266,20 @@ func TestManagedShowUsesFixedReplyDelayAndFrozenMessageMode(t *testing.T) {
 	fake := &fakeDOMBackend{controls: browser.DOMControls{HasInput: true, Buttons: []string{"SKIP"}}}
 	s := readyShow(t, a, fake, "account")
 	startShow(t, a, s.view.ID)
-	waitForLive(t, "waiting user", func() bool { return showView(t, a, s.view.ID).Decision == "User first" })
+	waitForLive(t, "normal opener", func() bool { return fake.sentCount("saved line") == 1 })
 	// Saving the shared Message page must not silently replace a live engine.
 	_ = a.SaveMessageSettings(model.NewMessageSettings("changed line", ""))
 	before := time.Now()
 	fake.addRow("partner", "hi")
-	waitForLive(t, "delayed saved line", func() bool { return fake.sentCount("saved line") == 1 })
+	waitForLive(t, "delayed saved line", func() bool { return fake.sentCount("second line") == 1 })
 	if time.Since(before) < time.Second || fake.sentCount("changed line") != 0 {
 		t.Fatal("saved delay or message snapshot was not honored")
 	}
 }
-func TestManagedFirstTimeoutAndNextWait(t *testing.T) {
+func TestManagedSilentTimeoutAndNextWait(t *testing.T) {
 	a := browserTestApp(t)
 	_ = a.SaveMessageSettings(model.NewMessageSettings("hello", ""))
-	settings := model.ShowModeSettings{FirstMessage: model.FirstMessageSettings{Mode: "user", WaitTimeout: true, WaitMinSeconds: 1, WaitMaxSeconds: 1}, NextChatMinSeconds: 1, NextChatMaxSeconds: 1}
+	settings := model.ShowModeSettings{FirstMessage: model.FirstMessageSettings{Mode: "user", WaitTimeout: true, WaitMinSeconds: 1, WaitMaxSeconds: 1}, NoReplyMinSeconds: 1, NoReplyMaxSeconds: 1, NextChatMinSeconds: 1, NextChatMaxSeconds: 1}
 	if err := a.SaveShowModeSettings(settings); err != nil {
 		t.Fatal(err)
 	}
@@ -287,9 +287,9 @@ func TestManagedFirstTimeoutAndNextWait(t *testing.T) {
 	s := readyShow(t, a, fake, "account")
 	before := time.Now()
 	startShow(t, a, s.view.ID)
-	waitForLive(t, "first-message skip", func() bool { return fake.clickCount("SKIP") == 1 })
-	if time.Since(before) < time.Second || fake.totalSent() != 0 {
-		t.Fatal("first timeout skipped early or sent opener")
+	waitForLive(t, "silent user skip", func() bool { return fake.clickCount("SKIP") == 1 })
+	if time.Since(before) < time.Second || fake.totalSent() != 1 {
+		t.Fatal("silent timeout skipped early or normal opener missing")
 	}
 	afterSkip := time.Now()
 	if fake.clickCount("START") != 0 {
